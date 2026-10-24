@@ -33,6 +33,23 @@ const state = {
   touchShooting: false,
 };
 
+// --- Sprites del Soldado Azul (operador1.jpg) ---
+const soldierSprites = {
+  front: new Image(),
+  right: new Image(),
+  left: new Image(),
+  loaded: false,
+};
+soldierSprites.front.src = '/img/soldier_front.png';
+soldierSprites.right.src = '/img/soldier_right.png';
+soldierSprites.left.src = '/img/soldier_left.png';
+soldierSprites.front.onload = () => {
+  soldierSprites.loaded = true;
+};
+
+// Historial para determinar la orientación del soldado
+const playerPrevPositions = new Map();
+
 // --- Elementos DOM ---
 const elements = {
   // Stats
@@ -526,32 +543,66 @@ function drawPlayers(players, renderTime) {
       ctx.globalAlpha = 0.3;
     }
 
-    // Cuerpo del jugador
-    ctx.beginPath();
-    ctx.arc(0, 0, 14, 0, Math.PI * 2);
-    ctx.fillStyle = p.color || '#00f0ff';
-    ctx.shadowColor = p.color || '#00f0ff';
-    ctx.shadowBlur = 14;
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // Orientación del soldado según movimiento o puntería
+    const prevPos = playerPrevPositions.get(p.id) || { x: pos.x, y: pos.y };
+    const dx = pos.x - prevPos.x;
+    playerPrevPositions.set(p.id, { x: pos.x, y: pos.y });
+
+    let soldierSprite = soldierSprites.front;
+    if (dx > 0.08) {
+      soldierSprite = soldierSprites.right;
+    } else if (dx < -0.08) {
+      soldierSprite = soldierSprites.left;
+    } else if (p.id === state.myPlayerId) {
+      const cx = elements.canvas.width / 2;
+      if (state.mouse.x > cx + 40) soldierSprite = soldierSprites.right;
+      else if (state.mouse.x < cx - 40) soldierSprite = soldierSprites.left;
+    }
+
+    const isBlueSoldier = p.color === '#00f0ff' || !p.color;
+
+    if (soldierSprites.loaded && isBlueSoldier) {
+      // Halo / sombra de energía cian en el suelo
+      ctx.beginPath();
+      ctx.ellipse(0, 12, 16, 7, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.35)';
+      ctx.shadowColor = '#00f0ff';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Dibujar sprite del soldado azul escalado
+      const spriteW = 32;
+      const spriteH = 46;
+      ctx.drawImage(soldierSprite, -spriteW / 2, -28, spriteW, spriteH);
+    } else {
+      // Fallback a indicador geométrico
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
+      ctx.fillStyle = p.color || '#00f0ff';
+      ctx.shadowColor = p.color || '#00f0ff';
+      ctx.shadowBlur = 14;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
 
     // Barra de salud superior
-    const barW = 32;
+    const barW = 34;
     const barH = 4;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(-barW / 2, -26, barW, barH);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(-barW / 2, -36, barW, barH);
     const hpFrac = Math.max(0, Math.min(1, p.hp / p.maxHp));
     ctx.fillStyle = '#b6ff3b';
-    ctx.fillRect(-barW / 2, -26, barW * hpFrac, barH);
+    ctx.fillRect(-barW / 2, -36, barW * hpFrac, barH);
 
     // Etiqueta de nombre y nivel
     ctx.font = '10px Orbitron, sans-serif';
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.shadowBlur = 0;
-    ctx.fillText(`${p.username} [L${p.level}]`, 0, -32);
+    ctx.fillText(`${p.username} [L${p.level}]`, 0, -42);
 
     ctx.restore();
   }

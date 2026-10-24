@@ -17,6 +17,8 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.static(publicDir));
   app.use('/shared', express.static(path.resolve(__dirname, '../shared')));
+  app.use('/img', express.static(path.resolve(__dirname, '../public/img')));
+  app.use('/img', express.static(path.resolve(__dirname, '../img')));
 
   // --- Endpoints de Prueba Oficiales ---
 
