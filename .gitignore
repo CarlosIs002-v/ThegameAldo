@@ -1,0 +1,22 @@
+# Dependencias
+node_modules/
+package-lock.json
+
+# Entorno y logs
+.env
+.env.local
+*.log
+npm-debug.log*
+
+# Pruebas y cobertura
+test-results/
+playwright-report/
+blob-report/
+.nyc_output/
+coverage/
+
+# IDE y sistema
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
