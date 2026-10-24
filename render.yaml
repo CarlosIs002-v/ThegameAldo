@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cybergrid-breach-sync
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run test:unit
+    startCommand: node server/index.js
+    healthCheckPath: /api/test/telemetry
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
