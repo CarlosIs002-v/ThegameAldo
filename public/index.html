@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CyberGrid: Breach & Sync — Multijugador Server-Authoritative</title>
+  <meta name="description" content="Videojuego multijugador Canvas 2D en tiempo real con arquitectura Server-Authoritative y WebSockets activos.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="cyber-theme">
+  <!-- Cabecera HUD Superior -->
+  <header class="cyber-header">
+    <div class="logo-area">
+      <span class="glitch-badge">ONLINE</span>
+      <h1 class="game-title">CYBERGRID <span class="highlight">BREACH & SYNC</span></h1>
+    </div>
+    <div class="network-stats" id="network-stats">
+      <div class="stat-pill" title="Latencia Round-Trip">
+        <span class="stat-icon">⚡</span>
+        <span class="stat-label">RTT:</span>
+        <span id="ping-display" class="stat-val ping-green">-- ms</span>
+      </div>
+      <div class="stat-pill" title="Tasa de Refresco">
+        <span class="stat-icon">🎮</span>
+        <span class="stat-label">FPS:</span>
+        <span id="fps-display" class="stat-val">60</span>
+      </div>
+      <div class="user-pill" id="user-display">
+        <span class="user-tag" id="user-tag">Operador Invitado</span>
+        <button id="btn-show-auth" class="btn-xs">Acceder</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contenedor Principal de la App -->
+  <main class="main-container">
+    <!-- Vista 1: Lobby y Selector de Salas -->
+    <section id="view-lobby" class="view-panel active">
+      <div class="lobby-grid">
+        <div class="cyber-card lobby-hero">
+          <h2>PROTOCOLO DE DESPLIEGUE</h2>
+          <p>Entorno de evaluación multijugador con simulación en tiempo real a 30 Ticks/s y renderizado desacoplado a 60 FPS.</p>
+          <div class="lobby-actions">
+            <button id="btn-create-room-modal" class="cyber-btn cyber-btn-primary">
+              <span class="btn-glow"></span>
+              + Crear Nueva Sala
+            </button>
+            <button id="btn-quick-join" class="cyber-btn cyber-btn-secondary">
+              Entrada Rápida (Sector Alfa)
+            </button>
+          </div>
+        </div>
+
+        <div class="cyber-card rooms-list-card">
+          <div class="card-header">
+            <h3>SALAS DISPONIBLES</h3>
+            <button id="btn-refresh-rooms" class="btn-xs" title="Actualizar lista">⟳ Refrescar</button>
+          </div>
+          <div id="rooms-container" class="rooms-container">
+            <div class="loading-text">Buscando frecuencias activas...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vista 2: Sala de Espera Pre-Partida -->
+    <section id="view-room-waiting" class="view-panel">
+      <div class="cyber-card room-briefing">
+        <div class="room-info-header">
+          <div>
+            <span class="sub-label">SALA ACTIVA</span>
+            <h2 id="current-room-name">Sector Alfa</h2>
+          </div>
+          <div class="room-id-tag" id="current-room-id">ID: room-1</div>
+        </div>
+
+        <div class="players-roster" id="players-roster">
+          <!-- Jugadores en la sala -->
+        </div>
+
+        <div class="room-footer-actions">
+          <button id="btn-leave-room" class="cyber-btn cyber-btn-danger">Abandonar Sala</button>
+          <button id="btn-toggle-ready" class="cyber-btn cyber-btn-accent" data-ready="false">
+            Marcar "Listo"
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vista 3: Lienzo Canvas de Juego -->
+    <section id="view-game" class="view-panel">
+      <!-- HUD Superpuesto en Tiempo Real -->
+      <div class="game-hud">
+        <div class="hud-left">
+          <div class="hud-bar-container">
+            <div class="hud-bar-label">INTEGRIDAD HP</div>
+            <div class="hud-bar">
+              <div id="hud-hp-bar" class="hud-bar-fill" style="width: 100%;"></div>
+            </div>
+            <span id="hud-hp-text" class="hud-val">100 / 100</span>
+          </div>
+          <div class="hud-substats">
+            <span>NIVEL: <strong id="hud-level">1</strong></span>
+            <span>SHARDS: <strong id="hud-shards">0</strong></span>
+            <span>FRAGS: <strong id="hud-kills">0</strong></span>
+          </div>
+        </div>
+
+        <!-- Telemetría de Coordenadas en el DOM (Requerimiento para Test E2E de Canvas) -->
+        <div class="hud-center">
+          <div id="player-coordinates" class="dom-telemetry-box" data-player-x="0" data-player-y="0">
+            <span class="telemetry-label">COORDENADAS DOM:</span>
+            <span class="telemetry-values">
+              X: <span id="telemetry-x">0</span> | Y: <span id="telemetry-y">0</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="hud-right">
+          <button id="btn-exit-match" class="btn-xs btn-exit">Salir al Lobby</button>
+        </div>
+      </div>
+
+      <!-- Lienzo Principal Canvas 2D -->
+      <div class="canvas-wrapper" id="canvas-wrapper">
+        <canvas id="game-canvas" width="1280" height="720"></canvas>
+
+        <!-- Controles Táctiles Adaptativos para Móvil (Ocultos automáticamente en PC) -->
+        <div id="touch-controls" class="touch-controls-layer" style="display: none;">
+          <!-- D-Pad / Joystick Virtual Izquierdo -->
+          <div id="touch-joystick" class="touch-joystick-zone">
+            <div class="joystick-base">
+              <div id="joystick-knob" class="joystick-knob"></div>
+            </div>
+            <span class="touch-hint">D-PAD MOVIMIENTO</span>
+          </div>
+
+          <!-- Botón de Acción Táctil Derecho -->
+          <div id="touch-action" class="touch-action-zone">
+            <button id="btn-touch-fire" class="touch-fire-btn" aria-label="Disparar">
+              <span>PULSE</span>
+            </button>
+            <span class="touch-hint">DISPARO</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal: Autenticación / Registro (Flujo E2E 1) -->
+  <div id="modal-auth" class="modal-overlay">
+    <div class="cyber-modal cyber-card">
+      <div class="modal-header">
+        <h3 id="auth-modal-title">ACCESO DE OPERADOR</h3>
+        <button id="btn-close-auth" class="btn-close" aria-label="Cerrar">&times;</button>
+      </div>
+      <form id="form-auth" class="modal-form">
+        <div class="form-group">
+          <label for="input-username">Identificador de Usuario</label>
+          <input type="text" id="input-username" name="username" placeholder="Ej. CyberPilot" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label for="input-password">Clave de Acceso</label>
+          <input type="password" id="input-password" name="password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <div id="auth-error-msg" class="form-error" style="display: none;"></div>
+        <div class="modal-actions">
+          <button type="submit" id="btn-submit-auth" class="cyber-btn cyber-btn-primary">
+            Confirmar Credenciales
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Creación de Sala (Flujo E2E 2) -->
+  <div id="modal-create-room" class="modal-overlay">
+    <div class="cyber-modal cyber-card">
+      <div class="modal-header">
+        <h3>CONFIGURAR NUEVA SALA</h3>
+        <button id="btn-close-create-room" class="btn-close">&times;</button>
+      </div>
+      <form id="form-create-room" class="modal-form">
+        <div class="form-group">
+          <label for="input-room-name">Nombre de la Sala</label>
+          <input type="text" id="input-room-name" name="name" placeholder="Sector Cyber-7" required>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="check-is-private" name="isPrivate">
+            Proteger con Contraseña (Sala Privada)
+          </label>
+        </div>
+        <div class="form-group" id="group-room-password" style="display: none;">
+          <label for="input-room-password">Contraseña de Sala</label>
+          <input type="password" id="input-room-password" name="password" placeholder="Clave para unirse">
+        </div>
+        <div class="form-group">
+          <label for="select-max-players">Límite de Jugadores</label>
+          <select id="select-max-players" name="maxPlayers">
+            <option value="2">2 Jugadores</option>
+            <option value="4" selected>4 Jugadores</option>
+            <option value="8">8 Jugadores</option>
+          </select>
+        </div>
+        <div id="create-room-error" class="form-error" style="display: none;"></div>
+        <div class="modal-actions">
+          <button type="submit" id="btn-submit-create-room" class="cyber-btn cyber-btn-primary">
+            Crear Sala
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Contraseña para Entrar a Sala Privada -->
+  <div id="modal-join-password" class="modal-overlay">
+    <div class="cyber-modal cyber-card">
+      <div class="modal-header">
+        <h3>SALA PROTEGIDA</h3>
+        <button id="btn-close-join-password" class="btn-close">&times;</button>
+      </div>
+      <form id="form-join-password" class="modal-form">
+        <input type="hidden" id="join-target-room-id">
+        <div class="form-group">
+          <label for="input-join-password">Ingrese la Contraseña de la Sala</label>
+          <input type="password" id="input-join-password" placeholder="••••••••" required>
+        </div>
+        <div id="join-password-error" class="form-error" style="display: none;"></div>
+        <div class="modal-actions">
+          <button type="submit" class="cyber-btn cyber-btn-primary">Desbloquear y Unirse</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="/js/client.js"></script>
+</body>
+</html>
