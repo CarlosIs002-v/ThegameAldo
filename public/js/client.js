@@ -87,7 +87,7 @@ const COLOR_MAP = {
 };
 
 const OPERATOR_COLORS = Object.values(COLOR_MAP);
-const DIRECTIONS = ['front', 'back', 'right', 'left'];
+const DIRECTIONS = ['front', 'back', 'right', 'left', 'up_left', 'up_right'];
 
 // Cache de imágenes con ciclo multi-frame para todos los colores:
 // operatorSprites[color][direction] -> Array de HTMLImageElement
@@ -96,6 +96,8 @@ for (const c of OPERATOR_COLORS) {
   operatorSprites[c] = {
     front: [new Image(), new Image()],
     back: [new Image(), new Image()],
+    up_left: [new Image(), new Image()],
+    up_right: [new Image(), new Image()],
     right: [new Image(), new Image(), new Image(), new Image()],
     left: [new Image(), new Image(), new Image(), new Image()],
   };
@@ -105,6 +107,12 @@ for (const c of OPERATOR_COLORS) {
 
   operatorSprites[c].back[0].src = `/img/soldier_${c}_back.png`;
   operatorSprites[c].back[1].src = `/img/soldier_${c}_back2.png`;
+
+  operatorSprites[c].up_left[0].src = `/img/soldier_${c}_up_left.png`;
+  operatorSprites[c].up_left[1].src = `/img/soldier_${c}_up_left2.png`;
+
+  operatorSprites[c].up_right[0].src = `/img/soldier_${c}_up_right.png`;
+  operatorSprites[c].up_right[1].src = `/img/soldier_${c}_up_right2.png`;
 
   operatorSprites[c].right[0].src = `/img/soldier_${c}_right.png`;
   operatorSprites[c].right[1].src = `/img/soldier_${c}_right2.png`;
@@ -1877,6 +1885,43 @@ function drawProjectiles(projectiles, renderTime) {
   }
 }
 
+// Resolución angular de orientación para evitar oscilaciones en diagonales
+function resolveDirectionFromAngle(deg, lastHoriz = 'right') {
+  // deg en grados [-180, 180]:
+  //  0° = derecha pura
+  //  90° = abajo puro (front)
+  //  -90° = arriba puro (back)
+  //  ±180° = izquierda pura
+
+  // Hacia abajo (front): entre 65° y 115°
+  if (deg >= 65 && deg <= 115) {
+    return 'front';
+  }
+
+  // Hacia arriba puro (back / espaldas): entre -115° y -65°
+  if (deg >= -115 && deg <= -65) {
+    return lastHoriz === 'left' ? 'up_left' : 'up_right';
+  }
+
+  // Diagonal arriba-izquierda (W+A, -135°): entre -160° y -115°
+  if (deg < -115 && deg >= -160) {
+    return 'up_left';
+  }
+
+  // Diagonal arriba-derecha (W+D, -45°): entre -65° y -20°
+  if (deg > -65 && deg <= -20) {
+    return 'up_right';
+  }
+
+  // Derecha pura y diagonal abajo-derecha (S+D, +45°): entre -20° y 65°
+  if (deg > -20 && deg < 65) {
+    return 'right';
+  }
+
+  // Izquierda pura y diagonal abajo-izquierda (S+A, +135°): deg >= 115 o deg < -160
+  return 'left';
+}
+
 function drawPlayers(players, renderTime, dt = 0.016) {
   for (const p of players) {
     let pos;
@@ -1895,7 +1940,9 @@ function drawPlayers(players, renderTime, dt = 0.016) {
       prevX: pos.x,
       prevY: pos.y,
       lastDir: 'front',
+      lastHoriz: 'right',
       walkTime: 0,
+      tilt: 0,
     };
 
     const dx = pos.x - orient.prevX;
@@ -1903,46 +1950,44 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     orient.prevX = pos.x;
     orient.prevY = pos.y;
 
-    const moveDist = Math.hypot(dx, dy);
-    const isMoving = moveDist > 0.04;
+    let isMoving = false;
+    let moveDeg = null;
+
+    if (p.id === state.myPlayerId) {
+      const input = readMovementInput();
+      if (Math.hypot(input.x, input.y) > 0.08) {
+        isMoving = true;
+        moveDeg = (Math.atan2(input.y, input.x) * 180) / Math.PI;
+        if (input.x > 0.05) orient.lastHoriz = 'right';
+        else if (input.x < -0.05) orient.lastHoriz = 'left';
+      }
+    }
+
+    if (!isMoving) {
+      const moveDist = Math.hypot(dx, dy);
+      if (moveDist > 0.06) {
+        isMoving = true;
+        moveDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        if (dx > 0.04) orient.lastHoriz = 'right';
+        else if (dx < -0.04) orient.lastHoriz = 'left';
+      }
+    }
+
     if (isMoving) {
       orient.walkTime += dt;
-    }
-
-    // Orientación precisa hacia donde va el operador
-    let dir = orient.lastDir;
-
-    if (isMoving) {
-      const moveAngle = Math.atan2(dy, dx);
-      const deg = (moveAngle * 180) / Math.PI;
-
-      if (deg >= -45 && deg <= 45) {
-        dir = 'right';
-      } else if (deg > 45 && deg < 135) {
-        dir = 'front'; // Hacia abajo / cámara
-      } else if (deg < -45 && deg > -135) {
-        dir = 'back'; // Hacia arriba / espaldas
-      } else {
-        dir = 'left';
-      }
-      orient.lastDir = dir;
+      orient.lastDir = resolveDirectionFromAngle(moveDeg, orient.lastHoriz);
     } else if (p.id === state.myPlayerId) {
-      // Si está detenido y es el jugador local, orientarse hacia el ángulo de puntería (mouse o touch)
-      const deg = (state.aimAngle * 180) / Math.PI;
-
-      if (deg >= -45 && deg <= 45) {
-        dir = 'right';
-      } else if (deg > 45 && deg < 135) {
-        dir = 'front';
-      } else if (deg < -45 && deg > -135) {
-        dir = 'back';
-      } else {
-        dir = 'left';
-      }
-      orient.lastDir = dir;
+      // En reposo, orientarse suavemente hacia la mira
+      const aimDeg = (state.aimAngle * 180) / Math.PI;
+      orient.lastDir = resolveDirectionFromAngle(aimDeg, orient.lastHoriz);
     }
 
+    const dir = orient.lastDir;
     playerOrientations.set(p.id, orient);
+
+    if (p.id === state.myPlayerId) {
+      elements.playerCoordinates?.setAttribute('data-player-dir', dir);
+    }
 
     // Obtener sprite correspondiente al color y dirección del operador con ciclo multi-frame
     const colorKey = COLOR_MAP[p.color?.toLowerCase()] || 'cyan';
@@ -1956,20 +2001,20 @@ function drawPlayers(players, renderTime, dt = 0.016) {
           const frameIdx = Math.floor((orient.walkTime * 11) % 4);
           const list = spriteSet[dir] || [];
           sprite = list[frameIdx] || list[0];
-        } else if (dir === 'front') {
-          // Ciclo de marcha frontal de 2 fotogramas
+        } else if (dir === 'up_left' || dir === 'up_right') {
+          // Ciclo diagonal dorsal de 2 fotogramas sincronizados (ambos en la misma dirección)
           const frameIdx = Math.floor((orient.walkTime * 8) % 2);
-          const list = spriteSet.front || [];
+          const list = spriteSet[dir] || spriteSet.back || [];
           sprite = list[frameIdx] || list[0];
         } else {
-          // Ciclo de marcha de espaldas de 2 fotogramas
+          // Ciclo de marcha frontal (front) o espalda (back)
           const frameIdx = Math.floor((orient.walkTime * 8) % 2);
-          const list = spriteSet.back || [];
+          const list = spriteSet[dir] || spriteSet.front || [];
           sprite = list[frameIdx] || list[0];
         }
       } else {
         // En reposo (idle): postura base limpia
-        const dirList = spriteSet[dir];
+        const dirList = spriteSet[dir] || spriteSet.front;
         sprite = Array.isArray(dirList) ? dirList[0] : dirList;
       }
     }
@@ -1980,7 +2025,11 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     const idleBreathe = !isMoving ? Math.sin((renderTime + (p.id ? p.id.charCodeAt(0) * 120 : 0)) * 0.004) * 0.9 : 0;
     const walkBob = isMoving ? Math.sin(orient.walkTime * 15) * 1.6 : 0;
     const bob = walkBob + idleBreathe;
-    const tilt = isMoving ? Math.max(-0.09, Math.min(0.09, (dx / (Math.abs(dy) + 0.1)) * 0.06)) : 0;
+    const targetTilt = isMoving
+      ? (dir === 'left' || dir === 'up_left' ? -0.05 : dir === 'right' || dir === 'up_right' ? 0.05 : 0)
+      : 0;
+    orient.tilt = (orient.tilt || 0) * 0.82 + targetTilt * 0.18;
+    const tilt = orient.tilt;
 
     // Estela de partículas de fluidez de movimiento al desplazarse
     if (isMoving && Math.random() < 0.28) {

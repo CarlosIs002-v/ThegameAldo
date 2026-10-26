@@ -47,4 +47,40 @@ test.describe('Flujo E2E 3: Lienzo Canvas, Inyección de Controles y Aserción d
     const moved = updatedX !== initialX || updatedY !== initialY;
     expect(moved).toBeTruthy();
   });
+
+  test('movimiento diagonal en W+A y W+D mantiene orientación estable (up_left / up_right) sin oscilaciones', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    await page.click('#btn-quick-join');
+    await expect(page.locator('#view-room-waiting')).toHaveClass(/active/, { timeout: 10_000 });
+
+    await page.click('#btn-toggle-ready');
+    await expect(page.locator('#view-game')).toHaveClass(/active/, { timeout: 10_000 });
+
+    const coordsBox = page.locator('#player-coordinates');
+    await expect(coordsBox).not.toHaveAttribute('data-player-x', '0', { timeout: 10_000 });
+
+    // 1. Presionar diagonal W + A (arriba-izquierda)
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('KeyA');
+    await page.waitForTimeout(300);
+
+    const dirUpLeft = await coordsBox.getAttribute('data-player-dir');
+    await page.keyboard.up('KeyW');
+    await page.keyboard.up('KeyA');
+    expect(dirUpLeft).toBe('up_left');
+
+    // 2. Presionar diagonal W + D (arriba-derecha)
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('KeyD');
+    await page.waitForTimeout(300);
+
+    const dirUpRight = await coordsBox.getAttribute('data-player-dir');
+    await page.keyboard.up('KeyW');
+    await page.keyboard.up('KeyD');
+    expect(dirUpRight).toBe('up_right');
+  });
 });
+
