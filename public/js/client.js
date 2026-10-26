@@ -6,6 +6,8 @@ import {
   PLAYER,
   CLIENT_INPUT_RATE,
   PREDICTION_SNAP_DISTANCE,
+  CHARACTERS,
+  BIOMES,
 } from '../shared/constants.js';
 import { stepMovement } from '../shared/physics.js';
 import { isWallTile } from '../shared/mapgen.js';
@@ -60,8 +62,11 @@ const state = {
   soundEnabled: localStorage.getItem('cyber_sound') !== 'false',
   audioCtx: null,
 
-  // Clase de Operador seleccionada
+  // Clase de Operador seleccionada y Especialista (Personaje)
   selectedClass: 'assault',
+  selectedCharacter: localStorage.getItem('cyber_char') || 'vanguard',
+  currentBiome: 'cavern',
+  isLeaderboardOpen: false,
 
   // Partículas y Efectos Visuales
   particles: [],
@@ -102,8 +107,25 @@ medkitSprite.src = '/img/medkit.png';
 // Historial para determinar la orientación y cadencia de paso del soldado
 const playerOrientations = new Map();
 
-// Caché del mapa pre-renderizado
+// Mapeos bidireccionales entre Clases y Especialistas (Personajes)
+const CHARACTER_TO_CLASS = {
+  vanguard: 'assault',
+  spectre: 'scout',
+  titan: 'tank',
+  nova: 'tactical',
+};
+
+const CLASS_TO_CHARACTER = {
+  assault: 'vanguard',
+  scout: 'spectre',
+  tank: 'titan',
+  tactical: 'nova',
+};
+
+// Caché del mapa y radar pre-renderizados
 let mapCache = null;
+let radarCacheCanvas = null;
+let radarCacheBiome = null;
 let resizeFrame = 0;
 
 // --- Elementos DOM ---
@@ -184,6 +206,19 @@ const elements = {
   headerSoundIcon: document.getElementById('header-sound-icon'),
   killFeed: document.getElementById('kill-feed'),
   classCardsGrid: document.getElementById('class-cards-grid'),
+
+  // Personajes, Biomas, Radar y Leaderboard
+  currentRoomBiome: document.getElementById('current-room-biome'),
+  characterCardsGrid: document.getElementById('character-cards-grid'),
+  inputRoomBiome: document.getElementById('input-room-biome'),
+  biomeCardsGrid: document.getElementById('biome-cards-grid'),
+  hudRadarContainer: document.getElementById('hud-radar-container'),
+  radarCanvas: document.getElementById('radar-canvas'),
+  radarBiomeBadge: document.getElementById('radar-biome-badge'),
+  hudLeaderboard: document.getElementById('hud-leaderboard'),
+  leaderboardBody: document.getElementById('leaderboard-body'),
+  btnToggleLeaderboard: document.getElementById('btn-toggle-leaderboard'),
+  btnCloseLeaderboard: document.getElementById('btn-close-leaderboard'),
 };
 
 const ctx = elements.canvas.getContext('2d');
@@ -197,6 +232,8 @@ export function init() {
   setupInputListeners();
   setupTouchControls();
   setupUIEvents();
+  setupCharacterSelection();
+  setupBiomeSelection();
   setupClassSelection();
   setupAudioListeners();
   setupCanvasResize();
@@ -272,14 +309,21 @@ function handleServerMessage(msg) {
       state.currentRoomId = msg.roomId;
       state.myPlayerId = msg.playerId;
       state.map = msg.map;
+      state.currentBiome = msg.biome || msg.map?.biome || 'cavern';
       mapCache = null;
+      radarCacheCanvas = null;
       showView('view-room-waiting');
       elements.currentRoomId.textContent = `ID: ${msg.roomId}`;
-      selectClass(state.selectedClass || 'assault');
+      updateBiomeBadge(state.currentBiome);
+      selectCharacter(state.selectedCharacter || 'vanguard');
       break;
     }
 
     case 'lobby_update': {
+      if (msg.biome) {
+        state.currentBiome = msg.biome;
+        updateBiomeBadge(msg.biome);
+      }
       renderLobbyRoster(msg);
       if (msg.status === 'in-game' && !elements.viewGame.classList.contains('active')) {
         showView('view-game');
@@ -296,6 +340,9 @@ function handleServerMessage(msg) {
 
     case 'snapshot': {
       handleSnapshot(msg);
+      if (state.isLeaderboardOpen && msg.players) {
+        renderLeaderboard(msg.players);
+      }
       break;
     }
 
@@ -533,6 +580,11 @@ const KEY_BY_CODE = {
 function setupInputListeners() {
   window.addEventListener('keydown', (e) => {
     if (isEditableTarget(e.target)) return;
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      toggleLeaderboard(true);
+      return;
+    }
     const key = KEY_BY_CODE[e.code] || (Object.prototype.hasOwnProperty.call(state.keys, e.key) ? e.key : null);
     if (!key) return;
     state.keys[key] = true;
@@ -540,6 +592,11 @@ function setupInputListeners() {
   });
 
   window.addEventListener('keyup', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      toggleLeaderboard(false);
+      return;
+    }
     const key = KEY_BY_CODE[e.code] || (Object.prototype.hasOwnProperty.call(state.keys, e.key) ? e.key : null);
     if (key) state.keys[key] = false;
   });
@@ -908,8 +965,8 @@ function renderGame(now, dt) {
   // 1. Renderizar Mapa (cacheado)
   drawMap();
 
-  // 2. Renderizar Cristales Luminiscentes
-  drawCrystals(now);
+  // 2. Renderizar Elementos de Bioma / Entorno (Cristales, Reactores, Ventilaciones)
+  drawEnvironmentDecorations(now);
 
   // 3. Renderizar Pickups
   if (state.currentSnapshot?.pickups) {
@@ -933,6 +990,9 @@ function renderGame(now, dt) {
   updateAndDrawFloatingTexts(dt);
 
   ctx.restore();
+
+  // 8. Renderizar Radar / Minimapa Táctico en HUD
+  renderRadar(now, myPos);
 }
 
 function isVisible(x, y, margin = 64) {
@@ -951,7 +1011,8 @@ function buildMapCache() {
   if (!state.map) return;
 
   const dpr = state.viewport.dpr || 1;
-  if (mapCache && mapCache.dpr === dpr) return;
+  const biome = state.map.biome || 'cavern';
+  if (mapCache && mapCache.dpr === dpr && mapCache.biome === biome) return;
 
   const ts = state.map.tileSize || TILE_SIZE;
   const width = state.map.width * ts;
@@ -967,11 +1028,53 @@ function buildMapCache() {
   const mw = map.width;
   const mh = map.height;
 
-  // 1. Fondo de roca subterránea profunda
-  c.fillStyle = '#06080e';
+  // 1. Paletas de Fondo, Suelo, Rejilla Neón y Muros según el Bioma
+  let bgFill = '#06080e';
+  let floorShades = ['#080c14', '#090e17', '#0a101a', '#0c121e'];
+  let gridStroke = 'rgba(0, 240, 255, 0.36)';
+  let gridNode = 'rgba(0, 240, 255, 0.75)';
+  let wallBase = '#111722';
+  let wallBlock1 = '#1a2433';
+  let wallBlock2 = '#243246';
+  let cliffStart = '#263447';
+  let cliffMid = '#1b2432';
+  let cliffEnd = '#0e141d';
+  let cliffEdge = '#3a4b63';
+  let cliffHighlight = '#576f8e';
+
+  if (biome === 'lab') {
+    bgFill = '#050711';
+    floorShades = ['#070b16', '#090f1e', '#0c1428', '#0e182f'];
+    gridStroke = 'rgba(138, 123, 255, 0.35)';
+    gridNode = 'rgba(255, 43, 214, 0.8)';
+    wallBase = '#101322';
+    wallBlock1 = '#191e34';
+    wallBlock2 = '#232a48';
+    cliffStart = '#222a40';
+    cliffMid = '#171c2e';
+    cliffEnd = '#0f1322';
+    cliffEdge = '#4d597a';
+    cliffHighlight = '#7083b0';
+  } else if (biome === 'ruins') {
+    bgFill = '#0a0404';
+    floorShades = ['#110808', '#170b0b', '#1d0e0e', '#231111'];
+    gridStroke = 'rgba(255, 90, 40, 0.38)';
+    gridNode = 'rgba(255, 176, 32, 0.85)';
+    wallBase = '#1a0b0b';
+    wallBlock1 = '#261111';
+    wallBlock2 = '#381919';
+    cliffStart = '#2e1515';
+    cliffMid = '#200e0e';
+    cliffEnd = '#140808';
+    cliffEdge = '#522525';
+    cliffHighlight = '#7d3838';
+  }
+
+  // Fondo del bioma
+  c.fillStyle = bgFill;
   c.fillRect(0, 0, width, height);
 
-  // 2. Renderizar Suelos de Caverna (Floor) y Rejilla Neón CyberGrid
+  // 2. Renderizar Suelos (Floor) y Rejilla Neón CyberGrid
   for (let y = 0; y < mh; y++) {
     for (let x = 0; x < mw; x++) {
       const tile = map.tiles[y * mw + x];
@@ -981,22 +1084,21 @@ function buildMapCache() {
       const py = y * ts;
       const h = tileHash(x, y);
 
-      // Variación sutil de baldosas de piedra de caverna
-      const floorShades = ['#080c14', '#090e17', '#0a101a', '#0c121e'];
+      // Variación sutil de baldosas según el bioma
       c.fillStyle = floorShades[h % floorShades.length];
       c.fillRect(px, py, ts, ts);
 
-      // Textura rocosa y pequeñas motas de grava
+      // Textura rocosa / granular o patrones de circuito
       if (h % 3 === 0) {
-        c.fillStyle = '#121a28';
+        c.fillStyle = biome === 'lab' ? '#17203b' : biome === 'ruins' ? '#2c1212' : '#121a28';
         const gx = px + (h % 20) + 4;
         const gy = py + ((h >> 4) % 20) + 4;
         c.fillRect(gx, gy, 2, 2);
         if (h % 5 === 0) c.fillRect(gx + 2, gy + 1, 1, 2);
       }
 
-      // Rejilla Neón CyberGrid (idéntica a la imagen de referencia)
-      c.strokeStyle = 'rgba(0, 240, 255, 0.36)';
+      // Rejilla Neón CyberGrid
+      c.strokeStyle = gridStroke;
       c.lineWidth = 1;
       c.beginPath();
       c.moveTo(px + 0.5, py + 0.5);
@@ -1005,11 +1107,11 @@ function buildMapCache() {
       c.lineTo(px + 0.5, py + ts + 0.5);
       c.stroke();
 
-      // Nodos brillantes en las intersecciones de la cuadrícula
-      c.fillStyle = 'rgba(0, 240, 255, 0.75)';
+      // Nodos brillantes en intersecciones
+      c.fillStyle = gridNode;
       c.fillRect(px - 1, py - 1, 2, 2);
 
-      // Sombras arrojadas por acantilados y muros de roca adyacentes
+      // Sombras arrojadas por acantilados y muros
       const wallAbove = isWallTile(map, x, y - 1);
       const wallLeft = isWallTile(map, x - 1, y);
       const wallRight = isWallTile(map, x + 1, y);
@@ -1038,7 +1140,7 @@ function buildMapCache() {
     }
   }
 
-  // 3. Renderizar Muros de Roca Orgánicos y Acantilados (Rock Walls)
+  // 3. Renderizar Muros Orgánicos, Aleaciones y Acantilados
   for (let y = 0; y < mh; y++) {
     for (let x = 0; x < mw; x++) {
       const tile = map.tiles[y * mw + x];
@@ -1053,158 +1155,186 @@ function buildMapCache() {
       const left = isWallTile(map, x - 1, y);
       const right = isWallTile(map, x + 1, y);
 
-      const isCliffFace = !bottom; // Muro frontal que da a suelo inferior
+      const isCliffFace = !bottom;
       const isBackEdge = !top;
       const isLeftEdge = !left;
       const isRightEdge = !right;
-
       const isInterior = top && bottom && left && right;
 
-      // Base del bloque de roca
-      c.fillStyle = '#111722';
+      // Base del bloque de muro
+      c.fillStyle = wallBase;
       c.fillRect(px, py, ts, ts);
 
       if (isInterior) {
-        // Bloques y peñascos redondeados de roca subterránea apilada
         const b1x = px + ((h % 8) + 2);
         const b1y = py + (((h >> 3) % 8) + 2);
         const b1w = 14 + (h % 8);
         const b1h = 12 + ((h >> 2) % 6);
 
-        c.fillStyle = '#1a2433';
+        c.fillStyle = wallBlock1;
         c.beginPath();
         c.roundRect(b1x, b1y, b1w, b1h, 4);
         c.fill();
 
-        c.fillStyle = '#243246';
+        c.fillStyle = wallBlock2;
         c.beginPath();
         c.roundRect(b1x + 1, b1y + 1, b1w - 2, 3, 2);
         c.fill();
-
-        const b2x = px + 15 + ((h >> 4) % 6);
-        const b2y = py + 14 + ((h >> 6) % 6);
-        c.fillStyle = '#17202d';
-        c.beginPath();
-        c.roundRect(b2x, b2y, 11, 10, 3);
-        c.fill();
-
-        c.strokeStyle = '#090d14';
-        c.lineWidth = 1;
-        c.beginPath();
-        c.moveTo(px, py + (h % 24));
-        c.lineTo(px + ts, py + ((h >> 5) % 24));
-        c.stroke();
       } else {
-        c.fillStyle = '#18212e';
+        c.fillStyle = wallBlock1;
         c.fillRect(px, py, ts, ts);
 
-        c.fillStyle = '#202c3d';
+        c.fillStyle = wallBlock2;
         c.beginPath();
         c.roundRect(px + 4, py + 4, ts - 8, ts - 8, 4);
         c.fill();
       }
 
       if (isCliffFace) {
-        // Múltiples lóbulos redondeados de piedra formando el borde del acantilado
-        c.fillStyle = '#3a4b63';
+        c.fillStyle = cliffEdge;
         c.beginPath();
         c.arc(px + 8, py + 6, 8, Math.PI, 0);
         c.arc(px + 24, py + 6, 8, Math.PI, 0);
         c.fill();
 
-        c.fillStyle = '#576f8e';
+        c.fillStyle = cliffHighlight;
         c.beginPath();
         c.arc(px + 8, py + 4, 7, Math.PI, Math.PI * 1.6);
         c.arc(px + 24, py + 4, 7, Math.PI, Math.PI * 1.6);
         c.stroke();
 
-        // Cara frontal del acantilado con sombreado vertical
         const cliffGrad = c.createLinearGradient(px, py + 8, px, py + ts);
-        cliffGrad.addColorStop(0, '#263447');
-        cliffGrad.addColorStop(0.4, '#1b2432');
-        cliffGrad.addColorStop(1, '#0e141d');
+        cliffGrad.addColorStop(0, cliffStart);
+        cliffGrad.addColorStop(0.4, cliffMid);
+        cliffGrad.addColorStop(1, cliffEnd);
         c.fillStyle = cliffGrad;
         c.fillRect(px, py + 8, ts, ts - 8);
 
-        // Fisuras verticales y estrías
-        c.strokeStyle = '#32445c';
+        // Fisuras en acantilados
+        c.strokeStyle = biome === 'ruins' ? '#ff4a1c' : biome === 'lab' ? '#00f0ff' : '#32445c';
+        c.lineWidth = 1;
         c.beginPath();
         c.moveTo(px + 7, py + 8);
         c.lineTo(px + 6, py + ts - 2);
-        c.moveTo(px + 23, py + 9);
-        c.lineTo(px + 25, py + ts - 2);
-        c.stroke();
-
-        c.strokeStyle = '#080b10';
-        c.beginPath();
-        c.moveTo(px + 8, py + 8);
-        c.lineTo(px + 7, py + ts);
+        if (biome !== 'lab') {
+          c.moveTo(px + 23, py + 9);
+          c.lineTo(px + 25, py + ts - 2);
+        }
         c.stroke();
 
         // Labio rocoso inferior
-        c.fillStyle = '#070a0f';
+        c.fillStyle = '#05070a';
         c.fillRect(px, py + ts - 2, ts, 2);
       }
 
       if (isBackEdge) {
-        c.fillStyle = '#3a4b63';
+        c.fillStyle = cliffEdge;
         c.beginPath();
         c.arc(px + 8, py + 4, 7, 0, Math.PI);
         c.arc(px + 24, py + 4, 7, 0, Math.PI);
         c.fill();
 
-        c.fillStyle = '#627c9f';
+        c.fillStyle = cliffHighlight;
         c.fillRect(px, py, ts, 2);
       }
 
       if (isLeftEdge) {
-        c.fillStyle = '#10151f';
+        c.fillStyle = '#0a0e14';
         c.fillRect(px, py, 3, ts);
       }
 
       if (isRightEdge) {
-        c.fillStyle = '#2f3e53';
+        c.fillStyle = cliffEdge;
         c.fillRect(px + ts - 3, py, 3, ts);
       }
 
-      // Musgo y líquenes bio-luminiscentes en las hendiduras rocosas
+      // Detalles específicos de cada bioma en los muros
       if ((isCliffFace || isLeftEdge || isRightEdge) && h % 2 === 0) {
-        c.fillStyle = '#275238';
-        const mx = px + (h % 18) + 4;
-        const my = py + ((h >> 3) % 14) + 6;
-        c.beginPath();
-        c.arc(mx, my, 4, 0, Math.PI * 2);
-        c.arc(mx + 3, my + 3, 3, 0, Math.PI * 2);
-        c.fill();
-        c.fillStyle = '#42875b';
-        c.fillRect(mx - 1, my - 1, 2, 2);
+        if (biome === 'cavern') {
+          // Musgo bio-luminiscente verde
+          c.fillStyle = '#275238';
+          const mx = px + (h % 18) + 4;
+          const my = py + ((h >> 3) % 14) + 6;
+          c.beginPath();
+          c.arc(mx, my, 4, 0, Math.PI * 2);
+          c.arc(mx + 3, my + 3, 3, 0, Math.PI * 2);
+          c.fill();
+          c.fillStyle = '#42875b';
+          c.fillRect(mx - 1, my - 1, 2, 2);
+        } else if (biome === 'lab') {
+          // Líneas de circuitos cian y bandas de advertencia
+          c.fillStyle = h % 4 === 0 ? '#ffb020' : '#00f0ff';
+          const lx = px + (h % 22) + 2;
+          const ly = py + ((h >> 2) % 18) + 4;
+          c.fillRect(lx, ly, 6, 2);
+        } else if (biome === 'ruins') {
+          // Grietas de magma incandescente
+          c.fillStyle = 'rgba(255, 74, 28, 0.75)';
+          const rx = px + (h % 20) + 4;
+          const ry = py + ((h >> 3) % 16) + 5;
+          c.fillRect(rx, ry, 3, 3);
+          c.fillStyle = '#ffe234';
+          c.fillRect(rx + 1, ry + 1, 1, 1);
+        }
       }
     }
   }
 
-  // 4. Renderizar Base de Cristales Luminiscentes en el Mapa
-  if (map.crystals) {
-    for (const cr of map.crystals) {
-      renderCrystalStaticBase(c, cr);
+  // 4. Renderizar Base Estática de Entorno según Bioma
+  if (biome === 'cavern' && map.crystals) {
+    for (const cr of map.crystals) renderCrystalStaticBase(c, cr);
+  } else if (biome === 'lab' && map.labCores) {
+    for (const core of map.labCores) renderLabCoreStaticBase(c, core);
+  } else if (biome === 'ruins' && map.ruinsVents) {
+    for (const vent of map.ruinsVents) renderRuinsVentStaticBase(c, vent);
+  }
+
+  // 5. Pre-renderizar Caché de Radar Táctico (120x120)
+  buildRadarCache(map, biome);
+
+  mapCache = { canvas, dpr, width, height, biome };
+}
+
+function buildRadarCache(map, biome) {
+  const radarCanvas = document.createElement('canvas');
+  radarCanvas.width = 120;
+  radarCanvas.height = 120;
+  const rc = radarCanvas.getContext('2d');
+
+  rc.clearRect(0, 0, 120, 120);
+
+  const mw = map.width;
+  const mh = map.height;
+  const scale = 120 / Math.max(mw, mh);
+
+  // Paleta de muros en minimapa según bioma
+  let wallColor = 'rgba(72, 255, 138, 0.45)';
+  if (biome === 'lab') wallColor = 'rgba(138, 123, 255, 0.5)';
+  if (biome === 'ruins') wallColor = 'rgba(255, 90, 40, 0.55)';
+
+  rc.fillStyle = wallColor;
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
+      if (map.tiles[y * mw + x] === TILE.WALL) {
+        rc.fillRect(x * scale, y * scale, Math.ceil(scale), Math.ceil(scale));
+      }
     }
   }
 
-  mapCache = { canvas, dpr, width, height };
+  radarCacheCanvas = radarCanvas;
+  radarCacheBiome = biome;
 }
 
 function renderCrystalStaticBase(c, cr) {
   const s = cr.scale || 1;
-
   c.save();
   c.translate(cr.x, cr.y);
 
-  // Pedestal de roca subterránea
   c.fillStyle = '#0f1520';
   c.beginPath();
   c.ellipse(0, 4, 12 * s, 6 * s, 0, 0, Math.PI * 2);
   c.fill();
 
-  // Espigas cristalinas poliédricas
   const spikes = [
     { dx: -7 * s, dy: 2, w: 6 * s, h: 16 * s, tilt: -0.28 },
     { dx: 7 * s, dy: 2, w: 6 * s, h: 17 * s, tilt: 0.28 },
@@ -1216,7 +1346,6 @@ function renderCrystalStaticBase(c, cr) {
     c.translate(sp.dx, sp.dy);
     c.rotate(sp.tilt);
 
-    // Faceta izquierda
     c.fillStyle = '#1e7840';
     c.beginPath();
     c.moveTo(0, -sp.h);
@@ -1225,7 +1354,6 @@ function renderCrystalStaticBase(c, cr) {
     c.closePath();
     c.fill();
 
-    // Faceta derecha brillante
     c.fillStyle = '#48ff8a';
     c.beginPath();
     c.moveTo(0, -sp.h);
@@ -1234,7 +1362,6 @@ function renderCrystalStaticBase(c, cr) {
     c.closePath();
     c.fill();
 
-    // Resalte del vértice central y punta en blanco/lima
     c.fillStyle = '#b6ff3b';
     c.beginPath();
     c.moveTo(0, -sp.h);
@@ -1246,9 +1373,60 @@ function renderCrystalStaticBase(c, cr) {
 
     c.fillStyle = '#ffffff';
     c.fillRect(-1, -sp.h, 2, 4);
-
     c.restore();
   }
+  c.restore();
+}
+
+function renderLabCoreStaticBase(c, core) {
+  const s = core.scale || 1;
+  c.save();
+  c.translate(core.x, core.y);
+
+  // Anillo de aleación industrial exterior
+  c.fillStyle = '#141829';
+  c.strokeStyle = '#323c66';
+  c.lineWidth = 2;
+  c.beginPath();
+  c.arc(0, 0, 18 * s, 0, Math.PI * 2);
+  c.fill();
+  c.stroke();
+
+  // Pernos de titanio en el perímetro
+  c.fillStyle = '#8a7bff';
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3;
+    c.fillRect(Math.cos(a) * 14 * s - 1.5, Math.sin(a) * 14 * s - 1.5, 3, 3);
+  }
+
+  // Cámara interior de plasma
+  c.fillStyle = '#0a0d17';
+  c.beginPath();
+  c.arc(0, 0, 10 * s, 0, Math.PI * 2);
+  c.fill();
+
+  c.restore();
+}
+
+function renderRuinsVentStaticBase(c, vent) {
+  const s = vent.scale || 1;
+  c.save();
+  c.translate(vent.x, vent.y);
+
+  // Caldera volcánica de basalto
+  c.fillStyle = '#1b0c0c';
+  c.strokeStyle = '#421a1a';
+  c.lineWidth = 2.5;
+  c.beginPath();
+  c.ellipse(0, 2, 17 * s, 11 * s, 0, 0, Math.PI * 2);
+  c.fill();
+  c.stroke();
+
+  // Cráter interno de magma
+  c.fillStyle = '#61160d';
+  c.beginPath();
+  c.ellipse(0, 2, 11 * s, 6.5 * s, 0, 0, Math.PI * 2);
+  c.fill();
 
   c.restore();
 }
@@ -1262,7 +1440,6 @@ function drawCrystals(now) {
     const pulse = Math.sin(now * 0.003 + cr.phase) * 0.18 + 0.82;
     const radius = 42 * cr.scale * pulse;
 
-    // Resplandor radial verde/lima que ilumina las paredes y el suelo
     const glow = ctx.createRadialGradient(cr.x, cr.y - 8, 2, cr.x, cr.y - 8, radius);
     glow.addColorStop(0, 'rgba(72, 255, 138, 0.42)');
     glow.addColorStop(0.35, 'rgba(182, 255, 59, 0.18)');
@@ -1273,7 +1450,6 @@ function drawCrystals(now) {
     ctx.arc(cr.x, cr.y - 8, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Partículas luminiscentes / destellos flotantes (firefly motes)
     for (let i = 0; i < 3; i++) {
       const angle = (now * 0.0015 + i * 2.1 + cr.phase) % (Math.PI * 2);
       const dist = 14 + Math.sin(now * 0.002 + i) * 6;
@@ -1287,6 +1463,208 @@ function drawCrystals(now) {
       ctx.fillRect(px - 1, py - 1, 2, 2);
       ctx.shadowBlur = 0;
     }
+  }
+}
+
+function drawLabCores(now) {
+  if (!state.map?.labCores) return;
+
+  for (const core of state.map.labCores) {
+    if (!isVisible(core.x, core.y, 64)) continue;
+
+    const pulse = Math.sin(now * 0.004 + core.phase) * 0.2 + 0.8;
+    const radius = 46 * core.scale * pulse;
+
+    const glow = ctx.createRadialGradient(core.x, core.y, 2, core.x, core.y, radius);
+    glow.addColorStop(0, 'rgba(255, 43, 214, 0.45)');
+    glow.addColorStop(0.4, 'rgba(138, 123, 255, 0.2)');
+    glow.addColorStop(1, 'rgba(138, 123, 255, 0)');
+
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Núcleo brillante giratorio de plasma
+    ctx.save();
+    ctx.translate(core.x, core.y);
+    ctx.rotate(now * 0.002 + core.phase);
+
+    ctx.fillStyle = '#ff2bd6';
+    ctx.shadowColor = '#ff2bd6';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 7 * core.scale * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Arcos de energía violeta
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12 * core.scale, 0, Math.PI * 1.2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+function drawRuinsVents(now) {
+  if (!state.map?.ruinsVents) return;
+
+  for (const vent of state.map.ruinsVents) {
+    if (!isVisible(vent.x, vent.y, 64)) continue;
+
+    const pulse = Math.sin(now * 0.0035 + vent.phase) * 0.22 + 0.78;
+    const radius = 44 * vent.scale * pulse;
+
+    const glow = ctx.createRadialGradient(vent.x, vent.y, 2, vent.x, vent.y, radius);
+    glow.addColorStop(0, 'rgba(255, 74, 28, 0.55)');
+    glow.addColorStop(0.45, 'rgba(255, 176, 32, 0.2)');
+    glow.addColorStop(1, 'rgba(255, 74, 28, 0)');
+
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(vent.x, vent.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Chispas y ascuas de magma ascendentes
+    for (let i = 0; i < 4; i++) {
+      const emberT = (now * 0.0018 + i * 0.28 + vent.phase) % 1;
+      const ex = vent.x + Math.sin(now * 0.003 + i * 2) * (10 * vent.scale);
+      const ey = vent.y - emberT * 32 * vent.scale;
+      const alpha = (1 - emberT) * 0.85;
+
+      ctx.fillStyle = `rgba(255, 226, 52, ${alpha})`;
+      ctx.shadowColor = '#ff5a5a';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(ex - 1.5, ey - 1.5, 3, 3);
+      ctx.shadowBlur = 0;
+    }
+  }
+}
+
+function drawEnvironmentDecorations(now) {
+  const biome = state.map?.biome || 'cavern';
+  if (biome === 'cavern') {
+    drawCrystals(now);
+  } else if (biome === 'lab') {
+    drawLabCores(now);
+  } else if (biome === 'ruins') {
+    drawRuinsVents(now);
+  }
+}
+
+function renderRadar(now, myPos) {
+  if (!elements.radarCanvas || !state.map) return;
+  const rc = elements.radarCanvas.getContext('2d');
+  if (!rc) return;
+
+  const rw = 120;
+  const rh = 120;
+  rc.clearRect(0, 0, rw, rh);
+
+  // 1. Fondo de radar cibernético
+  rc.fillStyle = 'rgba(5, 10, 20, 0.92)';
+  rc.fillRect(0, 0, rw, rh);
+
+  // 2. Dibujar silueta estática de muros
+  if (radarCacheCanvas) {
+    rc.drawImage(radarCacheCanvas, 0, 0, rw, rh);
+  }
+
+  const mw = state.map.width;
+  const mh = state.map.height;
+  const ts = state.map.tileSize || TILE_SIZE;
+  const mapW = mw * ts;
+  const mapH = mh * ts;
+  const scaleX = rw / mapW;
+  const scaleY = rh / mapH;
+
+  // 3. Anillos de alcance y retícula
+  rc.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+  rc.lineWidth = 1;
+  rc.beginPath();
+  rc.arc(rw / 2, rh / 2, 26, 0, Math.PI * 2);
+  rc.arc(rw / 2, rh / 2, 52, 0, Math.PI * 2);
+  rc.moveTo(rw / 2, 0);
+  rc.lineTo(rw / 2, rh);
+  rc.moveTo(0, rh / 2);
+  rc.lineTo(rw, rh / 2);
+  rc.stroke();
+
+  // 4. Haz giratorio del barrido de radar
+  const sweepAngle = (now * 0.0022) % (Math.PI * 2);
+  rc.save();
+  rc.translate(rw / 2, rh / 2);
+  rc.rotate(sweepAngle);
+
+  const sweepGrad = rc.createRadialGradient(0, 0, 0, 0, 0, rw / 2);
+  sweepGrad.addColorStop(0, 'rgba(0, 240, 255, 0.4)');
+  sweepGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+  rc.fillStyle = sweepGrad;
+  rc.beginPath();
+  rc.moveTo(0, 0);
+  rc.arc(0, 0, rw / 2, -0.4, 0);
+  rc.closePath();
+  rc.fill();
+
+  rc.strokeStyle = '#00f0ff';
+  rc.lineWidth = 1.2;
+  rc.beginPath();
+  rc.moveTo(0, 0);
+  rc.lineTo(rw / 2, 0);
+  rc.stroke();
+  rc.restore();
+
+  // 5. Blips de pickups en el radar
+  if (state.currentSnapshot?.pickups) {
+    for (const item of state.currentSnapshot.pickups) {
+      const rx = item.x * scaleX;
+      const ry = item.y * scaleY;
+      rc.fillStyle = item.kind === 'shard' ? '#00f0ff' : '#48ff8a';
+      rc.fillRect(rx - 1.5, ry - 1.5, 3, 3);
+    }
+  }
+
+  // 6. Blips de otros jugadores
+  if (state.currentSnapshot?.players) {
+    for (const p of state.currentSnapshot.players) {
+      if (p.id === state.myPlayerId || p.dead) continue;
+      const rx = p.x * scaleX;
+      const ry = p.y * scaleY;
+      rc.fillStyle = '#ff4343';
+      rc.beginPath();
+      rc.arc(rx, ry, 2.5, 0, Math.PI * 2);
+      rc.fill();
+    }
+  }
+
+  // 7. Blip del Jugador Local con cono de orientación
+  if (myPos) {
+    const mx = myPos.x * scaleX;
+    const my = myPos.y * scaleY;
+
+    rc.save();
+    rc.translate(mx, my);
+
+    // Cono de visión / puntería
+    rc.fillStyle = 'rgba(0, 240, 255, 0.35)';
+    rc.beginPath();
+    rc.moveTo(0, 0);
+    rc.arc(0, 0, 10, state.aimAngle - 0.45, state.aimAngle + 0.45);
+    rc.closePath();
+    rc.fill();
+
+    // Punto del operador
+    rc.fillStyle = '#00f0ff';
+    rc.shadowColor = '#00f0ff';
+    rc.shadowBlur = 6;
+    rc.beginPath();
+    rc.arc(0, 0, 3.5, 0, Math.PI * 2);
+    rc.fill();
+    rc.shadowBlur = 0;
+
+    rc.restore();
   }
 }
 
@@ -1682,6 +2060,7 @@ function setupUIEvents() {
     const isPrivate = elements.checkIsPrivate.checked;
     const password = document.getElementById('input-room-password').value;
     const maxPlayers = parseInt(document.getElementById('select-max-players').value, 10);
+    const biome = elements.inputRoomBiome?.value || 'cavern';
 
     try {
       const headers = { 'Content-Type': 'application/json' };
@@ -1690,7 +2069,7 @@ function setupUIEvents() {
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ name, isPrivate, password, maxPlayers }),
+        body: JSON.stringify({ name, isPrivate, password, maxPlayers, biome }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Error al crear la sala');
@@ -1759,6 +2138,10 @@ function setupUIEvents() {
   // Alternancia de Sonido SFX
   elements.btnToggleSound?.addEventListener('click', toggleSound);
   elements.btnHeaderSound?.addEventListener('click', toggleSound);
+
+  // Tabla de Posiciones (Leaderboard) Overlay
+  elements.btnToggleLeaderboard?.addEventListener('click', () => toggleLeaderboard());
+  elements.btnCloseLeaderboard?.addEventListener('click', () => toggleLeaderboard(false));
 }
 
 function leaveCurrentRoom() {
@@ -1860,30 +2243,36 @@ function joinRoom(roomId, password = null) {
       roomId,
       username: state.username,
       password,
+      characterId: state.selectedCharacter || 'vanguard',
     })
   );
 }
 
 function renderLobbyRoster(lobby) {
   elements.currentRoomName.textContent = lobby.roomName;
-  const CLASS_LABELS = {
-    assault: '⚡ Asalto',
-    scout: '🏹 Explorador',
-    tank: '🛡️ Juggernaut',
-  };
+  if (lobby.biome) {
+    state.currentBiome = lobby.biome;
+    updateBiomeBadge(lobby.biome);
+  }
 
   elements.playersRoster.innerHTML = lobby.players
     .map((p) => {
-      const colorKey = COLOR_MAP[p.color?.toLowerCase()] || 'cyan';
-      const classLabel = CLASS_LABELS[p.classId] || CLASS_LABELS.assault;
+      const char = CHARACTERS[p.characterId] || CHARACTERS.vanguard;
+      const colorKey = COLOR_MAP[p.color?.toLowerCase()] || char.spriteColor || 'cyan';
+      const avatarSrc = `/img/soldier_${colorKey}_front.png`;
+      const charRole = char.role || 'Asalto Frontal';
+      const charName = char.name || 'Vanguardia Neón';
+
       return `
     <div class="roster-card">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <img src="/img/soldier_${colorKey}_front.png" style="width: 28px; height: 38px; object-fit: contain; filter: drop-shadow(0 0 6px ${p.color || '#00f0ff'});" alt="Operador">
+        <img src="${avatarSrc}" style="width: 32px; height: 42px; object-fit: contain; filter: drop-shadow(0 0 6px ${p.color || char.color});" alt="${charName}">
         <div>
           <strong>${p.username}</strong>
-          <div style="font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; align-items: center;">
-            <span style="color: var(--accent-cyan); font-weight: 600;">${classLabel}</span>
+          <div style="font-size: 12px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <span style="color: ${char.color}; font-weight: 600;">${charName}</span>
+            <span>•</span>
+            <span style="color: var(--text-muted);">${charRole}</span>
             <span>•</span>
             <span>Ping: ${p.ping || 20}ms</span>
           </div>
@@ -2101,6 +2490,37 @@ function playSfx(type, options = {}) {
   }
 }
 
+// --- Selección de Especialistas (Personajes) y Biomas ---
+function setupCharacterSelection() {
+  document.querySelectorAll('.character-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const charId = card.getAttribute('data-character');
+      if (charId) {
+        selectCharacter(charId);
+      }
+    });
+  });
+}
+
+function selectCharacter(charId) {
+  state.selectedCharacter = charId;
+  localStorage.setItem('cyber_char', charId);
+
+  document.querySelectorAll('.character-card').forEach((c) => {
+    c.classList.toggle('active', c.getAttribute('data-character') === charId);
+  });
+
+  const matchingClass = CHARACTER_TO_CLASS[charId] || 'assault';
+  state.selectedClass = matchingClass;
+  document.querySelectorAll('.class-card').forEach((c) => {
+    c.classList.toggle('active', c.getAttribute('data-class') === matchingClass);
+  });
+
+  if (state.socket && state.socket.readyState === WebSocket.OPEN && state.currentRoomId) {
+    state.socket.send(JSON.stringify({ type: 'select_character', characterId: charId }));
+  }
+}
+
 // --- Selección de Clases de Operadores ---
 function setupClassSelection() {
   document.querySelectorAll('.class-card').forEach((card) => {
@@ -2118,9 +2538,102 @@ function selectClass(classId) {
   document.querySelectorAll('.class-card').forEach((c) => {
     c.classList.toggle('active', c.getAttribute('data-class') === classId);
   });
+
+  const matchingChar = CLASS_TO_CHARACTER[classId] || 'vanguard';
+  state.selectedCharacter = matchingChar;
+  localStorage.setItem('cyber_char', matchingChar);
+  document.querySelectorAll('.character-card').forEach((c) => {
+    c.classList.toggle('active', c.getAttribute('data-character') === matchingChar);
+  });
+
   if (state.socket && state.socket.readyState === WebSocket.OPEN && state.currentRoomId) {
     state.socket.send(JSON.stringify({ type: 'select_class', classId }));
   }
+}
+
+// --- Selección de Biomas de Mapas ---
+function setupBiomeSelection() {
+  document.querySelectorAll('.biome-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const biome = card.getAttribute('data-biome');
+      if (biome && elements.inputRoomBiome) {
+        elements.inputRoomBiome.value = biome;
+        document.querySelectorAll('.biome-card').forEach((c) => {
+          c.classList.toggle('active', c.getAttribute('data-biome') === biome);
+        });
+      }
+    });
+  });
+}
+
+function updateBiomeBadge(biomeId) {
+  const biomeInfo = BIOMES[biomeId] || BIOMES.cavern;
+  const label = `${biomeInfo.icon} ${biomeInfo.name}`;
+  if (elements.currentRoomBiome) {
+    elements.currentRoomBiome.textContent = label;
+  }
+  if (elements.radarBiomeBadge) {
+    elements.radarBiomeBadge.textContent = label;
+  }
+}
+
+// --- Tabla de Posiciones en Vivo (Leaderboard) ---
+function toggleLeaderboard(force) {
+  state.isLeaderboardOpen = typeof force === 'boolean' ? force : !state.isLeaderboardOpen;
+  if (elements.hudLeaderboard) {
+    elements.hudLeaderboard.classList.toggle('open', state.isLeaderboardOpen);
+    elements.hudLeaderboard.style.display = state.isLeaderboardOpen ? 'flex' : 'none';
+  }
+  if (state.isLeaderboardOpen && state.currentSnapshot?.players) {
+    renderLeaderboard(state.currentSnapshot.players);
+  }
+}
+
+function renderLeaderboard(players) {
+  if (!elements.leaderboardBody || !Array.isArray(players)) return;
+
+  const sorted = [...players].sort((a, b) => {
+    const scoreA = (a.kills || 0) * 100 + (a.shards || 0) * 10 + (a.level || 1) * 50 - (a.dead ? 500 : 0);
+    const scoreB = (b.kills || 0) * 100 + (b.shards || 0) * 10 + (b.level || 1) * 50 - (b.dead ? 500 : 0);
+    return scoreB - scoreA;
+  });
+
+  elements.leaderboardBody.innerHTML = sorted
+    .map((p, idx) => {
+      const isMe = p.id === state.myPlayerId;
+      const char = CHARACTERS[p.characterId] || CHARACTERS.vanguard;
+      const colorKey = COLOR_MAP[p.color?.toLowerCase()] || char.spriteColor || 'cyan';
+      const avatarSrc = `/img/soldier_${colorKey}_front.png`;
+      const hpPct = Math.max(0, Math.min(100, Math.round(((p.hp || 0) / (p.maxHp || 100)) * 100)));
+
+      return `
+    <tr class="${isMe ? 'is-self' : ''}">
+      <td style="font-weight: 700; color: ${idx === 0 ? '#ffe234' : idx === 1 ? '#00f0ff' : '#aaa'};">#${idx + 1}</td>
+      <td>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="${avatarSrc}" style="width: 20px; height: 26px; object-fit: contain; filter: drop-shadow(0 0 4px ${p.color || char.color});" alt="${char.name}">
+          <span style="color: ${char.color}; font-weight: 600;">${char.name}</span>
+        </div>
+      </td>
+      <td style="font-weight: ${isMe ? '700' : '400'}; color: ${isMe ? 'var(--accent-cyan)' : '#fff'};">
+        ${p.username} ${isMe ? '(Tú)' : ''}
+      </td>
+      <td><span class="badge-level">Nv. ${p.level || 1}</span></td>
+      <td style="color: #ff5a5a; font-weight: 700;">${p.kills || 0}</td>
+      <td style="color: #00f0ff; font-weight: 700;">${p.shards || 0}</td>
+      <td>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div style="width: 50px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+            <div style="width: ${hpPct}%; height: 100%; background: ${p.dead ? '#555' : hpPct > 35 ? '#b6ff3b' : '#ff4343'};"></div>
+          </div>
+          <span style="font-size: 11px;">${p.dead ? 'MUERTO' : `${p.hp}/${p.maxHp}`}</span>
+        </div>
+      </td>
+      <td style="color: var(--text-muted); font-size: 11px;">${p.ping || 20}ms</td>
+    </tr>
+  `;
+    })
+    .join('');
 }
 
 // --- Sistema de Partículas, Daño Flotante y Screen Shake ---

@@ -2,6 +2,7 @@ import {
   SERVER_TICK_RATE,
   PLAYER,
   CLASSES,
+  CHARACTERS,
   PROJECTILE,
   PICKUP,
   PLAYER_COLORS,
@@ -25,7 +26,7 @@ import { createRng } from '../shared/rng.js';
 export class GameMatch {
   constructor(room) {
     this.room = room;
-    this.map = generateMap({ seed: room.mapSeed });
+    this.map = generateMap({ seed: room.mapSeed, biome: room.biome || 'cavern' });
     this.rng = createRng(room.mapSeed);
     this.floorTiles = floorCells(this.map);
 
@@ -64,17 +65,21 @@ export class GameMatch {
     });
   }
 
-  addPlayer(id, username, classId = 'assault') {
+  addPlayer(id, username, classId = 'assault', characterId = 'vanguard') {
     const spawnIndex = this.players.size % Math.max(1, this.map.spawns.length);
     const spawn = this.map.spawns[spawnIndex] || { x: 100, y: 100 };
     const colorIndex = this.players.size % PLAYER_COLORS.length;
-    const classCfg = CLASSES[classId] || CLASSES.assault;
+    const charCfg = CHARACTERS[characterId] || CHARACTERS.vanguard;
+    const finalClassId = classId || charCfg.classId;
+    const classCfg = CLASSES[finalClassId] || CLASSES.assault;
+    const color = charCfg.color || PLAYER_COLORS[colorIndex];
 
     const player = {
       id,
       username,
+      characterId: charCfg.id,
       classId: classCfg.id,
-      color: PLAYER_COLORS[colorIndex],
+      color,
       x: spawn.x,
       y: spawn.y,
       hp: classCfg.baseHp,
@@ -97,6 +102,22 @@ export class GameMatch {
 
     this.players.set(id, player);
     return player;
+  }
+
+  setPlayerCharacter(id, characterId) {
+    const player = this.players.get(id);
+    if (!player) return;
+    const charCfg = CHARACTERS[characterId] || CHARACTERS.vanguard;
+    player.characterId = charCfg.id;
+    player.classId = charCfg.classId;
+    player.color = charCfg.color;
+    const classCfg = CLASSES[charCfg.classId] || CLASSES.assault;
+    player.speed = classCfg.speed;
+    player.armor = classCfg.armor;
+    player.fireCooldownMs = classCfg.fireCooldownMs;
+    player.projectileSpeed = classCfg.projectileSpeed;
+    player.maxHp = maxHpForLevel(player.level, classCfg.baseHp);
+    player.hp = Math.min(player.hp, player.maxHp);
   }
 
   setPlayerClass(id, classId) {
@@ -344,6 +365,7 @@ export class GameMatch {
       players: Array.from(this.players.values()).map((p) => ({
         id: p.id,
         username: p.username,
+        characterId: p.characterId || 'vanguard',
         classId: p.classId || 'assault',
         color: p.color,
         x: Number(p.x.toFixed(2)),

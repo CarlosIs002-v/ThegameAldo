@@ -83,12 +83,85 @@
           <div>
             <span class="sub-label">SALA ACTIVA</span>
             <h2 id="current-room-name">Sector Alfa</h2>
+            <div class="room-meta-tags">
+              <span class="room-id-tag" id="current-room-id">ID: room-1</span>
+              <span class="room-biome-tag" id="current-room-biome">💎 Caverna de Cristal</span>
+            </div>
           </div>
-          <div class="room-id-tag" id="current-room-id">ID: room-1</div>
         </div>
 
         <div class="players-roster" id="players-roster">
           <!-- Jugadores en la sala -->
+        </div>
+
+        <!-- Selector de Personajes / Especialistas -->
+        <div class="specialist-selection-container">
+          <span class="sub-label">SELECCIONAR ESPECIALISTA OPERADOR (PERSONAJE)</span>
+          <div class="character-cards-grid" id="character-cards-grid">
+            <button type="button" class="character-card active" data-character="vanguard" aria-label="Operador Vanguardia Neón">
+              <div class="character-avatar-wrap">
+                <img src="/img/soldier_cyan_front.png" alt="Vanguardia Neón" class="character-avatar-img">
+              </div>
+              <div class="character-card-info">
+                <strong class="character-name">Vanguardia Neón</strong>
+                <span class="character-role">⚡ Asalto Frontal</span>
+                <p class="character-desc">Visor táctico y rifle de pulsos balanceado.</p>
+                <div class="character-stats-row">
+                  <span>VEL: ★★★☆☆</span>
+                  <span>RES: ★★★☆☆</span>
+                  <span>CAD: ★★★☆☆</span>
+                </div>
+              </div>
+            </button>
+
+            <button type="button" class="character-card" data-character="spectre" aria-label="Operador Espectro Sombra">
+              <div class="character-avatar-wrap">
+                <img src="/img/soldier_magenta_front.png" alt="Espectro Sombra" class="character-avatar-img">
+              </div>
+              <div class="character-card-info">
+                <strong class="character-name">Espectro Sombra</strong>
+                <span class="character-role">🏹 Scout / Sigilo</span>
+                <p class="character-desc">Infiltración veloz con ráfagas supersónicas.</p>
+                <div class="character-stats-row">
+                  <span>VEL: ★★★★★</span>
+                  <span>RES: ★★☆☆☆</span>
+                  <span>CAD: ★★★★★</span>
+                </div>
+              </div>
+            </button>
+
+            <button type="button" class="character-card" data-character="titan" aria-label="Operador Titán Cyborg">
+              <div class="character-avatar-wrap">
+                <img src="/img/soldier_orange_front.png" alt="Titán Cyborg" class="character-avatar-img">
+              </div>
+              <div class="character-card-info">
+                <strong class="character-name">Titán Cyborg</strong>
+                <span class="character-role">🛡️ Blindaje Pesado</span>
+                <p class="character-desc">Chasis blindado y plasma masivo.</p>
+                <div class="character-stats-row">
+                  <span>VEL: ★★☆☆☆</span>
+                  <span>RES: ★★★★★</span>
+                  <span>CAD: ★★☆☆☆</span>
+                </div>
+              </div>
+            </button>
+
+            <button type="button" class="character-card" data-character="nova" aria-label="Operadora Nova">
+              <div class="character-avatar-wrap">
+                <img src="/img/soldier_teal_front.png" alt="Operadora Nova" class="character-avatar-img">
+              </div>
+              <div class="character-card-info">
+                <strong class="character-name">Operadora Nova</strong>
+                <span class="character-role">🧬 Táctica Bio-Tech</span>
+                <p class="character-desc">Regeneración acelerada y blindaje cibernético.</p>
+                <div class="character-stats-row">
+                  <span>VEL: ★★★★☆</span>
+                  <span>RES: ★★★★☆</span>
+                  <span>CAD: ★★★☆☆</span>
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
 
         <!-- Selector de Clase de Operador -->
@@ -118,6 +191,14 @@
               </div>
               <p class="class-desc">Blindaje +15 · Plasma pesado</p>
               <div class="class-meta">HP: 140 | VEL: 155 | CAD: Pesada</div>
+            </button>
+            <button type="button" class="class-card" data-class="tactical" aria-label="Clase Táctica">
+              <div class="class-card-header">
+                <span class="class-icon">🧬</span>
+                <strong class="class-title">TÁCTICA</strong>
+              </div>
+              <p class="class-desc">Bio-tech · Regeneración y blindaje</p>
+              <div class="class-meta">HP: 110 | VEL: 205 | Blindaje: 10</div>
             </button>
           </div>
         </div>
@@ -164,6 +245,9 @@
         </div>
 
         <div class="hud-right">
+          <button id="btn-toggle-leaderboard" class="btn-xs btn-leaderboard" title="Tabla de Puntuaciones (Tab)" aria-label="Tabla de Puntuaciones" type="button">
+            📊 <span class="lb-label">Marcador</span>
+          </button>
           <button id="btn-toggle-sound" class="btn-xs btn-sound" title="Alternar Sonido" aria-label="Alternar Sonido" type="button">
             <span id="sound-icon">🔊</span>
           </button>
@@ -171,6 +255,46 @@
             <span class="fs-icon">⛶</span> <span class="fs-label">Pantalla Completa</span>
           </button>
           <button id="btn-exit-match" class="btn-xs btn-exit">Salir al Lobby</button>
+        </div>
+
+        <!-- Radar Minimapa Táctico en Tiempo Real -->
+        <div id="hud-radar-container" class="hud-radar-box">
+          <div class="radar-header">
+            <span class="radar-title">RADAR</span>
+            <span id="radar-biome-badge" class="radar-biome">💎 CAVERNA</span>
+          </div>
+          <canvas id="radar-canvas" width="120" height="120" class="radar-canvas"></canvas>
+        </div>
+
+        <!-- Tabla de Puntuaciones / Leaderboard flotante -->
+        <div id="hud-leaderboard" class="hud-leaderboard-overlay">
+          <div class="leaderboard-card">
+            <div class="leaderboard-header">
+              <h3>TABLA DE PUNTUACIONES [TAB]</h3>
+              <button id="btn-close-leaderboard" class="btn-close" aria-label="Cerrar marcador">&times;</button>
+            </div>
+            <div class="leaderboard-table-wrap">
+              <table class="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Operador</th>
+                    <th>Especialista</th>
+                    <th>Kills</th>
+                    <th>Muertes</th>
+                    <th>Cristales</th>
+                    <th>Ping</th>
+                  </tr>
+                </thead>
+                <tbody id="leaderboard-body">
+                  <!-- Rellenado dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+            <div class="leaderboard-footer">
+              <span>Presiona <strong>TAB</strong> o pulsa Marcador para alternar</span>
+            </div>
+          </div>
         </div>
 
         <!-- Feed de Bajas / Anuncios de Combate -->
@@ -277,6 +401,33 @@
             <option value="4" selected>4 Jugadores</option>
             <option value="8">8 Jugadores</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label>Sector / Bioma del Mapa</label>
+          <input type="hidden" id="input-room-biome" name="biome" value="cavern">
+          <div class="biome-cards-grid" id="biome-cards-grid">
+            <button type="button" class="biome-card active" data-biome="cavern" aria-label="Bioma Caverna de Cristal">
+              <span class="biome-card-icon">💎</span>
+              <div class="biome-card-content">
+                <strong>Caverna de Cristal</strong>
+                <p>Gruta bioluminiscente de estalactitas y rocas</p>
+              </div>
+            </button>
+            <button type="button" class="biome-card" data-biome="lab" aria-label="Bioma Laboratorio CyberGrid">
+              <span class="biome-card-icon">⚡</span>
+              <div class="biome-card-content">
+                <strong>Laboratorio CyberGrid</strong>
+                <p>Complejo de acero con reactores de plasma</p>
+              </div>
+            </button>
+            <button type="button" class="biome-card" data-biome="ruins" aria-label="Bioma Ruinas de Neón">
+              <span class="biome-card-icon">🌋</span>
+              <div class="biome-card-content">
+                <strong>Ruinas de Neón</strong>
+                <p>Páramo calcinado con fisuras de magma</p>
+              </div>
+            </button>
+          </div>
         </div>
         <div id="create-room-error" class="form-error" style="display: none;"></div>
         <div class="modal-actions">

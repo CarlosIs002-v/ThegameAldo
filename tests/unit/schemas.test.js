@@ -68,6 +68,21 @@ describe('Esquemas Zod de Validación de Payloads (shared/schemas.js)', () => {
       maxPlayers: 20,
     });
     expect(tooMany.success).toBe(false);
+
+    // Bioma personalizado válido
+    const validBiome = createRoomSchema.safeParse({
+      name: 'Laboratorio Alfa',
+      biome: 'lab',
+    });
+    expect(validBiome.success).toBe(true);
+    expect(validBiome.data.biome).toBe('lab');
+
+    // Bioma inválido
+    const invalidBiome = createRoomSchema.safeParse({
+      name: 'Mundo Invalido',
+      biome: 'jungle',
+    });
+    expect(invalidBiome.success).toBe(false);
   });
 
   it('exige entre 100 y 1,000 partidas en la semilla de telemetría', () => {

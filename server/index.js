@@ -96,6 +96,7 @@ export function createApp() {
           name: room.name,
           isPrivate: room.isPrivate,
           maxPlayers: room.maxPlayers,
+          biome: room.biome,
         },
       });
     } catch (err) {
@@ -145,9 +146,9 @@ export function startServer(port = process.env.PORT || 3000) {
           }
 
           case 'join_room': {
-            const { roomId, username, password } = payload;
+            const { roomId, username, password, characterId } = payload;
             try {
-              const info = roomManager.joinRoom(roomId, ws, username, password);
+              const info = roomManager.joinRoom(roomId, ws, username, password, characterId);
               assignedPlayerId = info.playerId;
               ws.send(
                 JSON.stringify({
@@ -155,6 +156,9 @@ export function startServer(port = process.env.PORT || 3000) {
                   roomId: info.roomId,
                   playerId: info.playerId,
                   username: info.username,
+                  characterId: info.characterId,
+                  classId: info.classId,
+                  biome: info.biome,
                   map: info.map,
                 })
               );
@@ -166,6 +170,14 @@ export function startServer(port = process.env.PORT || 3000) {
                   message: err.message,
                 })
               );
+            }
+            break;
+          }
+
+          case 'select_character': {
+            const result = roomManager.setPlayerCharacter(ws, payload.characterId);
+            if (result) {
+              ws.send(JSON.stringify({ type: 'character_ack', ...result }));
             }
             break;
           }

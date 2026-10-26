@@ -42,10 +42,78 @@ export function generateMap(options = {}) {
 
   keepLargestRegion(tiles, width, height);
 
-  const map = { width, height, seed, tileSize: TILE_SIZE, tiles, spawns: [], crystals: [] };
+  const biome = options.biome ?? 'cavern';
+
+  const map = {
+    width,
+    height,
+    seed,
+    biome,
+    tileSize: TILE_SIZE,
+    tiles,
+    spawns: [],
+    crystals: [],
+    labCores: [],
+    ruinsVents: [],
+  };
   map.spawns = pickSpawns(map, spawnCount, rng);
-  map.crystals = pickCrystals(map, 18, rng);
+
+  if (biome === 'cavern') {
+    map.crystals = pickCrystals(map, 18, rng);
+  } else if (biome === 'lab') {
+    map.labCores = pickEnvironmentNodes(map, 16, rng, 'core');
+  } else if (biome === 'ruins') {
+    map.ruinsVents = pickEnvironmentNodes(map, 16, rng, 'vent');
+  }
   return map;
+}
+
+function pickEnvironmentNodes(map, count, rng, type) {
+  const width = map.width;
+  const height = map.height;
+  const candidates = [];
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      if (map.tiles[y * width + x] === TILE.FLOOR) {
+        const hasWall =
+          map.tiles[(y - 1) * width + x] === TILE.WALL ||
+          map.tiles[(y + 1) * width + x] === TILE.WALL ||
+          map.tiles[y * width + (x - 1)] === TILE.WALL ||
+          map.tiles[y * width + (x + 1)] === TILE.WALL;
+        if (hasWall) {
+          candidates.push({ x, y });
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) return [];
+  const picked = [];
+  const minTileDistSq = 5 * 5;
+  const shuffled = candidates.slice().sort(() => rng() - 0.5);
+
+  for (const c of shuffled) {
+    if (picked.length >= count) break;
+    const tooClose = picked.some(
+      (p) => (p.tx - c.x) ** 2 + (p.ty - c.y) ** 2 < minTileDistSq
+    );
+    if (!tooClose) {
+      const center = tileCenter(map, c.x, c.y);
+      picked.push({
+        id: picked.length + 1,
+        tx: c.x,
+        ty: c.y,
+        x: center.x + (rng() - 0.5) * 6,
+        y: center.y + (rng() - 0.5) * 6,
+        type,
+        scale: 0.85 + rng() * 0.35,
+        phase: rng() * Math.PI * 2,
+      });
+    }
+  }
+
+  return picked;
 }
 
 function countWallNeighbours(tiles, width, height, cx, cy) {

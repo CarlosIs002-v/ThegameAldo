@@ -1,4 +1,5 @@
 import { createRoomSchema } from '../shared/schemas.js';
+import { CHARACTERS } from '../shared/constants.js';
 import { GameMatch } from './game.js';
 
 /**
@@ -17,6 +18,7 @@ class RoomManager {
       isPrivate: false,
       maxPlayers: 4,
       mapSeed: 42,
+      biome: 'cavern',
     });
   }
 
@@ -31,10 +33,11 @@ class RoomManager {
       password: validated.password || null,
       maxPlayers: validated.maxPlayers,
       mapSeed: validated.mapSeed,
+      biome: validated.biome || 'cavern',
       creator: creatorUsername,
       createdAt: Date.now(),
       status: 'waiting', // 'waiting' | 'in-game'
-      clients: new Map(), // socket -> { id, username, ready, ping }
+      clients: new Map(), // socket -> { id, username, characterId, classId, ready, ping }
       match: null,
 
       broadcast(data) {
@@ -65,10 +68,11 @@ class RoomManager {
       playerCount: r.clients.size,
       status: r.status,
       creator: r.creator,
+      biome: r.biome || 'cavern',
     }));
   }
 
-  joinRoom(roomId, socket, username, password = null) {
+  joinRoom(roomId, socket, username, password = null, characterId = 'vanguard') {
     const room = this.rooms.get(roomId);
     if (!room) {
       throw new Error('La sala no existe');
@@ -88,10 +92,12 @@ class RoomManager {
     }
 
     const playerId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const charCfg = CHARACTERS[characterId] || CHARACTERS.vanguard;
     const clientData = {
       id: playerId,
       username: username || `Operador_${playerId.slice(-4)}`,
-      classId: 'assault',
+      characterId: charCfg.id,
+      classId: charCfg.classId,
       ready: false,
       ping: 20,
     };
@@ -100,7 +106,7 @@ class RoomManager {
     this.clientToRoom.set(socket, roomId);
 
     // Añadir jugador al motor de la partida
-    room.match.addPlayer(playerId, clientData.username, clientData.classId);
+    room.match.addPlayer(playerId, clientData.username, clientData.classId, clientData.characterId);
 
     // Si es el primer jugador o se une a una sala existente, arranca el loop si no estaba activo
     room.match.start();
@@ -108,7 +114,15 @@ class RoomManager {
     // Notificar a todos en la sala
     this.broadcastLobbyState(room);
 
-    return { roomId, playerId, username: clientData.username, classId: clientData.classId, map: room.match.map };
+    return {
+      roomId,
+      playerId,
+      username: clientData.username,
+      characterId: clientData.characterId,
+      classId: clientData.classId,
+      biome: room.biome || 'cavern',
+      map: room.match.map,
+    };
   }
 
   leaveRoom(socket) {
@@ -135,6 +149,24 @@ class RoomManager {
     }
   }
 
+  setPlayerCharacter(socket, characterId) {
+    const roomId = this.clientToRoom.get(socket);
+    if (!roomId) return null;
+
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+
+    const client = room.clients.get(socket);
+    if (!client) return null;
+
+    const charCfg = CHARACTERS[characterId] || CHARACTERS.vanguard;
+    client.characterId = charCfg.id;
+    client.classId = charCfg.classId;
+    room.match.setPlayerCharacter(client.id, charCfg.id);
+    this.broadcastLobbyState(room);
+    return { playerId: client.id, characterId: charCfg.id, classId: charCfg.classId };
+  }
+
   setPlayerClass(socket, classId) {
     const roomId = this.clientToRoom.get(socket);
     if (!roomId) return null;
@@ -145,7 +177,7 @@ class RoomManager {
     const client = room.clients.get(socket);
     if (!client) return null;
 
-    const validClass = ['assault', 'scout', 'tank'].includes(classId) ? classId : 'assault';
+    const validClass = ['assault', 'scout', 'tank', 'tactical'].includes(classId) ? classId : 'assault';
     client.classId = validClass;
     room.match.setPlayerClass(client.id, validClass);
     this.broadcastLobbyState(room);
@@ -181,6 +213,7 @@ class RoomManager {
     const players = Array.from(room.clients.values()).map((c) => ({
       id: c.id,
       username: c.username,
+      characterId: c.characterId || 'vanguard',
       classId: c.classId || 'assault',
       ready: c.ready,
       ping: c.ping,
@@ -192,6 +225,7 @@ class RoomManager {
       roomId: room.id,
       roomName: room.name,
       status: room.status,
+      biome: room.biome || 'cavern',
       players,
     });
   }

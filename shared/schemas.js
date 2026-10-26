@@ -30,6 +30,7 @@ export const createRoomSchema = z.object({
   password: z.string().max(32).optional(),
   maxPlayers: z.number().int().min(2).max(8).default(4),
   mapSeed: z.number().int().default(() => Math.floor(Math.random() * 100000)),
+  biome: z.enum(['cavern', 'lab', 'ruins']).default('cavern'),
 });
 
 // Esquema de entrada de jugador (evita manipulación de velocidad o inputs anómalos)
