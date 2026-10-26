@@ -390,7 +390,11 @@ function handleServerMessage(msg) {
       break;
 
     case 'error': {
-      alert(`[Error]: ${msg.message}`);
+      if (elements.modalJoinPassword?.classList.contains('open')) {
+        displayFormError(elements.joinPasswordError, msg.message, 'Error al ingresar a la sala');
+      } else {
+        alert(`[Error]: ${msg.message}`);
+      }
       break;
     }
   }
@@ -2107,10 +2111,82 @@ function setupTitleScreen() {
   });
 }
 
+// Formateador universal de errores para modales (evita JSON crudo de Zod/APIs)
+function displayFormError(container, errorSource, fallback = 'Ha ocurrido un error') {
+  if (!container) return;
+  let formattedText = '';
+
+  if (Array.isArray(errorSource)) {
+    formattedText = errorSource
+      .map((e) => (typeof e === 'object' && e !== null ? e.message || JSON.stringify(e) : String(e)))
+      .filter(Boolean)
+      .join('\n');
+  } else if (typeof errorSource === 'object' && errorSource !== null) {
+    if (Array.isArray(errorSource.errors) && errorSource.errors.length > 0) {
+      formattedText = errorSource.errors
+        .map((e) => (typeof e === 'object' && e !== null ? e.message || JSON.stringify(e) : String(e)))
+        .filter(Boolean)
+        .join('\n');
+    } else if (errorSource.message) {
+      formattedText = String(errorSource.message);
+    }
+  } else if (typeof errorSource === 'string') {
+    formattedText = errorSource;
+  }
+
+  // Si formattedText contiene JSON crudo (ej: "[ { \"origin\": \"string\", ... } ]")
+  if (
+    typeof formattedText === 'string' &&
+    (formattedText.trim().startsWith('[') || formattedText.trim().startsWith('{'))
+  ) {
+    try {
+      const parsed = JSON.parse(formattedText);
+      if (Array.isArray(parsed)) {
+        formattedText = parsed
+          .map((item) =>
+            typeof item === 'object' && item !== null ? item.message || JSON.stringify(item) : String(item)
+          )
+          .filter(Boolean)
+          .join('\n');
+      } else if (parsed?.message) {
+        formattedText = String(parsed.message);
+      }
+    } catch {
+      // Dejar la cadena original si no es JSON válido
+    }
+  }
+
+  if (!formattedText || formattedText.trim() === '') {
+    formattedText = fallback;
+  }
+
+  const lines = formattedText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length > 1) {
+    container.innerHTML = `<ul class="form-error-list">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`;
+  } else {
+    container.textContent = lines[0] || fallback;
+  }
+
+  container.style.display = 'block';
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function setupUIEvents() {
   // Autenticación
   elements.btnShowAuth.addEventListener('click', () => {
     elements.authErrorMsg.style.display = 'none';
+    elements.authErrorMsg.innerHTML = '';
     elements.modalAuth.classList.add('open');
   });
 
@@ -2130,7 +2206,7 @@ function setupUIEvents() {
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Error de credenciales');
+      if (!res.ok) throw data;
 
       state.token = data.session.token;
       state.username = data.session.username;
@@ -2139,14 +2215,14 @@ function setupUIEvents() {
       updateUserDisplay();
       elements.modalAuth.classList.remove('open');
     } catch (err) {
-      elements.authErrorMsg.textContent = err.message;
-      elements.authErrorMsg.style.display = 'block';
+      displayFormError(elements.authErrorMsg, err, 'Error de autenticación');
     }
   });
 
   // Crear Sala
   elements.btnCreateRoomModal.addEventListener('click', () => {
     elements.createRoomError.style.display = 'none';
+    elements.createRoomError.innerHTML = '';
     elements.modalCreateRoom.classList.add('open');
   });
 
@@ -2176,13 +2252,12 @@ function setupUIEvents() {
         body: JSON.stringify({ name, isPrivate, password, maxPlayers, biome }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Error al crear la sala');
+      if (!res.ok) throw data;
 
       elements.modalCreateRoom.classList.remove('open');
       joinRoom(data.room.id, isPrivate ? password : null);
     } catch (err) {
-      elements.createRoomError.textContent = err.message;
-      elements.createRoomError.style.display = 'block';
+      displayFormError(elements.createRoomError, err, 'Error al crear la sala');
     }
   });
 

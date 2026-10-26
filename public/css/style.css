@@ -973,13 +973,28 @@ body.is-touch .touch-controls-layer {
 }
 
 .form-error {
-  padding: 8px 12px;
-  background: rgba(255, 67, 67, 0.15);
-  border: 1px solid var(--color-red);
+  padding: 10px 14px;
+  background: rgba(255, 67, 67, 0.12);
+  border: 1px solid rgba(255, 67, 67, 0.45);
+  box-shadow: 0 0 12px rgba(255, 67, 67, 0.15);
   color: #ff9e9e;
   font-size: 13px;
-  border-radius: 4px;
+  line-height: 1.45;
+  border-radius: 6px;
   margin-bottom: 14px;
+  word-break: break-word;
+}
+
+.form-error .form-error-list {
+  margin: 0;
+  padding-left: 18px;
+  list-style-type: '⚠ ';
+}
+
+.form-error .form-error-list li {
+  margin: 4px 0;
+  padding-left: 4px;
+  color: #ffb4b4;
 }
 
 .modal-actions {

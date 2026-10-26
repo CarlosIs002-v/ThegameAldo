@@ -64,6 +64,35 @@ export function createApp() {
     }
   });
 
+  // Función auxiliar para transformar errores de Zod u otros en mensajes amigables y limpios
+  function formatApiError(err, defaultMsg = 'Error en la solicitud') {
+    if (err?.name === 'ZodError' || Array.isArray(err?.errors) || Array.isArray(err?.issues)) {
+      const issues = err.errors || err.issues || [];
+      const formattedList = issues.map((i) => i.message).filter(Boolean);
+      const friendlyMessage = formattedList.length > 0
+        ? formattedList.join('. ')
+        : defaultMsg;
+      return { message: friendlyMessage, errors: formattedList };
+    }
+
+    if (typeof err?.message === 'string' && (err.message.trim().startsWith('[') || err.message.trim().startsWith('{'))) {
+      try {
+        const parsed = JSON.parse(err.message);
+        if (Array.isArray(parsed)) {
+          const msgs = parsed.map((p) => p.message || p).filter(Boolean);
+          if (msgs.length > 0) {
+            return { message: msgs.join('. '), errors: msgs };
+          }
+        }
+      } catch {}
+    }
+
+    return {
+      message: err?.message || defaultMsg,
+      errors: [err?.message || defaultMsg],
+    };
+  }
+
   // --- Endpoints de Autenticación y Salas ---
 
   app.post('/api/auth/login', (req, res) => {
@@ -72,7 +101,8 @@ export function createApp() {
       const session = authService.login(username, password);
       res.status(200).json({ status: 'ok', session });
     } catch (err) {
-      res.status(400).json({ status: 'error', message: err.message });
+      const { message, errors } = formatApiError(err, 'Error de autenticación');
+      res.status(400).json({ status: 'error', message, errors });
     }
   });
 
@@ -100,7 +130,8 @@ export function createApp() {
         },
       });
     } catch (err) {
-      res.status(400).json({ status: 'error', message: err.message });
+      const { message, errors } = formatApiError(err, 'Error al crear la sala');
+      res.status(400).json({ status: 'error', message, errors });
     }
   });
 
