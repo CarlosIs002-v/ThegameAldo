@@ -10,9 +10,9 @@ export const TILE = Object.freeze({
 });
 
 export const MAP_DEFAULTS = Object.freeze({
-  width: 40,
-  height: 26,
-  wallDensity: 0.42,
+  width: 60,
+  height: 38,
+  wallDensity: 0.40,
   smoothingPasses: 4,
 });
 
@@ -53,8 +53,8 @@ export const PROJECTILE = Object.freeze({
 
 export const PICKUP = Object.freeze({
   radius: 10,
-  maxActive: 8,
-  spawnEveryMs: 4000,
+  maxActive: 14,
+  spawnEveryMs: 3500,
   medkitHeal: 35,
   kinds: ['shard', 'medkit'],
 });

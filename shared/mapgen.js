@@ -42,8 +42,9 @@ export function generateMap(options = {}) {
 
   keepLargestRegion(tiles, width, height);
 
-  const map = { width, height, seed, tileSize: TILE_SIZE, tiles, spawns: [] };
+  const map = { width, height, seed, tileSize: TILE_SIZE, tiles, spawns: [], crystals: [] };
   map.spawns = pickSpawns(map, spawnCount, rng);
+  map.crystals = pickCrystals(map, 18, rng);
   return map;
 }
 
@@ -164,6 +165,72 @@ function pickSpawns(map, count, rng) {
     spawns.push(best);
   }
   return spawns.map(({ x, y }) => tileCenter(map, x, y));
+}
+
+/**
+ * Selecciona posiciones para cúmulos de cristales luminiscentes verdes/limas
+ * incrustados en las paredes o bordes rocosos, como en el arte subterráneo de referencia.
+ */
+function pickCrystals(map, count, rng) {
+  const candidates = [];
+  const width = map.width;
+  const height = map.height;
+
+  for (let y = 2; y < height - 2; y++) {
+    for (let x = 2; x < width - 2; x++) {
+      const isWall = map.tiles[y * width + x] === TILE.WALL;
+      const isFloor = map.tiles[y * width + x] === TILE.FLOOR;
+
+      if (isWall) {
+        const hasFloor =
+          map.tiles[(y - 1) * width + x] === TILE.FLOOR ||
+          map.tiles[(y + 1) * width + x] === TILE.FLOOR ||
+          map.tiles[y * width + (x - 1)] === TILE.FLOOR ||
+          map.tiles[y * width + (x + 1)] === TILE.FLOOR;
+        if (hasFloor) {
+          candidates.push({ x, y, onWall: true });
+        }
+      } else if (isFloor) {
+        const hasWall =
+          map.tiles[(y - 1) * width + x] === TILE.WALL ||
+          map.tiles[(y + 1) * width + x] === TILE.WALL ||
+          map.tiles[y * width + (x - 1)] === TILE.WALL ||
+          map.tiles[y * width + (x + 1)] === TILE.WALL;
+        if (hasWall) {
+          candidates.push({ x, y, onWall: false });
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) return [];
+
+  const picked = [];
+  const minTileDistSq = 5 * 5;
+  const shuffled = candidates.slice().sort(() => rng() - 0.5);
+
+  for (const c of shuffled) {
+    if (picked.length >= count) break;
+    const tooClose = picked.some(
+      (p) => (p.tx - c.x) ** 2 + (p.ty - c.y) ** 2 < minTileDistSq
+    );
+    if (!tooClose) {
+      const center = tileCenter(map, c.x, c.y);
+      picked.push({
+        id: picked.length + 1,
+        tx: c.x,
+        ty: c.y,
+        x: center.x + (rng() - 0.5) * 8,
+        y: center.y + (rng() - 0.5) * 8,
+        onWall: c.onWall,
+        scale: 0.85 + rng() * 0.35,
+        shards: Math.floor(rng() * 2) + 3,
+        phase: rng() * Math.PI * 2,
+      });
+    }
+  }
+
+  return picked;
 }
 
 export function tileCenter(map, tx, ty) {

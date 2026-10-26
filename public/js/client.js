@@ -8,6 +8,7 @@ import {
   PREDICTION_SNAP_DISTANCE,
 } from '../shared/constants.js';
 import { stepMovement } from '../shared/physics.js';
+import { isWallTile } from '../shared/mapgen.js';
 
 /**
  * Cliente de CyberGrid: Breach & Sync.
@@ -831,8 +832,23 @@ function renderGame(now, dt) {
     myPos = { x: spawn.x, y: spawn.y };
   }
 
-  const camX = width / 2 - myPos.x;
-  const camY = height / 2 - myPos.y;
+  const mapW = state.map.width * (state.map.tileSize || TILE_SIZE);
+  const mapH = state.map.height * (state.map.tileSize || TILE_SIZE);
+
+  let camX = width / 2 - myPos.x;
+  let camY = height / 2 - myPos.y;
+
+  if (mapW > width) {
+    camX = Math.min(0, Math.max(width - mapW, camX));
+  } else {
+    camX = (width - mapW) / 2;
+  }
+
+  if (mapH > height) {
+    camY = Math.min(0, Math.max(height - mapH, camY));
+  } else {
+    camY = (height - mapH) / 2;
+  }
 
   state.viewRect = {
     left: -camX,
@@ -847,7 +863,10 @@ function renderGame(now, dt) {
   // 1. Renderizar Mapa (cacheado)
   drawMap();
 
-  // 2. Renderizar Pickups
+  // 2. Renderizar Cristales Luminiscentes
+  drawCrystals(now);
+
+  // 3. Renderizar Pickups
   if (state.currentSnapshot?.pickups) {
     drawPickups(state.currentSnapshot.pickups, now);
   }
@@ -871,6 +890,12 @@ function isVisible(x, y, margin = 64) {
   return x >= r.left - margin && x <= r.right + margin && y >= r.top - margin && y <= r.bottom + margin;
 }
 
+function tileHash(x, y) {
+  let h = (x * 374761393 + y * 668265263) ^ 0x5bf03635;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 function buildMapCache() {
   if (!state.map) return;
 
@@ -887,26 +912,331 @@ function buildMapCache() {
   const c = canvas.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  for (let y = 0; y < state.map.height; y++) {
-    for (let x = 0; x < state.map.width; x++) {
-      const tile = state.map.tiles[y * state.map.width + x];
+  const map = state.map;
+  const mw = map.width;
+  const mh = map.height;
+
+  // 1. Fondo de roca subterránea profunda
+  c.fillStyle = '#06080e';
+  c.fillRect(0, 0, width, height);
+
+  // 2. Renderizar Suelos de Caverna (Floor) y Rejilla Neón CyberGrid
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
+      const tile = map.tiles[y * mw + x];
+      if (tile !== TILE.FLOOR) continue;
+
       const px = x * ts;
       const py = y * ts;
+      const h = tileHash(x, y);
 
-      if (tile === TILE.WALL) {
-        c.fillStyle = '#141c2b';
-        c.fillRect(px, py, ts, ts);
-        c.strokeStyle = '#00f0ff';
-        c.lineWidth = 1;
-        c.strokeRect(px + 0.5, py + 0.5, ts - 1, ts - 1);
-      } else {
-        c.fillStyle = '#0a0d14';
-        c.fillRect(px, py, ts, ts);
+      // Variación sutil de baldosas de piedra de caverna
+      const floorShades = ['#080c14', '#090e17', '#0a101a', '#0c121e'];
+      c.fillStyle = floorShades[h % floorShades.length];
+      c.fillRect(px, py, ts, ts);
+
+      // Textura rocosa y pequeñas motas de grava
+      if (h % 3 === 0) {
+        c.fillStyle = '#121a28';
+        const gx = px + (h % 20) + 4;
+        const gy = py + ((h >> 4) % 20) + 4;
+        c.fillRect(gx, gy, 2, 2);
+        if (h % 5 === 0) c.fillRect(gx + 2, gy + 1, 1, 2);
+      }
+
+      // Rejilla Neón CyberGrid (idéntica a la imagen de referencia)
+      c.strokeStyle = 'rgba(0, 240, 255, 0.36)';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(px + 0.5, py + 0.5);
+      c.lineTo(px + ts + 0.5, py + 0.5);
+      c.moveTo(px + 0.5, py + 0.5);
+      c.lineTo(px + 0.5, py + ts + 0.5);
+      c.stroke();
+
+      // Nodos brillantes en las intersecciones de la cuadrícula
+      c.fillStyle = 'rgba(0, 240, 255, 0.75)';
+      c.fillRect(px - 1, py - 1, 2, 2);
+
+      // Sombras arrojadas por acantilados y muros de roca adyacentes
+      const wallAbove = isWallTile(map, x, y - 1);
+      const wallLeft = isWallTile(map, x - 1, y);
+      const wallRight = isWallTile(map, x + 1, y);
+
+      if (wallAbove) {
+        const topShadow = c.createLinearGradient(px, py, px, py + 14);
+        topShadow.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
+        topShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = topShadow;
+        c.fillRect(px, py, ts, 14);
+      }
+      if (wallLeft) {
+        const leftShadow = c.createLinearGradient(px, py, px + 8, py);
+        leftShadow.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
+        leftShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = leftShadow;
+        c.fillRect(px, py, 8, ts);
+      }
+      if (wallRight) {
+        const rightShadow = c.createLinearGradient(px + ts - 8, py, px + ts, py);
+        rightShadow.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        rightShadow.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+        c.fillStyle = rightShadow;
+        c.fillRect(px + ts - 8, py, 8, ts);
       }
     }
   }
 
+  // 3. Renderizar Muros de Roca Orgánicos y Acantilados (Rock Walls)
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
+      const tile = map.tiles[y * mw + x];
+      if (tile !== TILE.WALL) continue;
+
+      const px = x * ts;
+      const py = y * ts;
+      const h = tileHash(x, y);
+
+      const top = isWallTile(map, x, y - 1);
+      const bottom = isWallTile(map, x, y + 1);
+      const left = isWallTile(map, x - 1, y);
+      const right = isWallTile(map, x + 1, y);
+
+      const isCliffFace = !bottom; // Muro frontal que da a suelo inferior
+      const isBackEdge = !top;
+      const isLeftEdge = !left;
+      const isRightEdge = !right;
+
+      const isInterior = top && bottom && left && right;
+
+      // Base del bloque de roca
+      c.fillStyle = '#111722';
+      c.fillRect(px, py, ts, ts);
+
+      if (isInterior) {
+        // Bloques y peñascos redondeados de roca subterránea apilada
+        const b1x = px + ((h % 8) + 2);
+        const b1y = py + (((h >> 3) % 8) + 2);
+        const b1w = 14 + (h % 8);
+        const b1h = 12 + ((h >> 2) % 6);
+
+        c.fillStyle = '#1a2433';
+        c.beginPath();
+        c.roundRect(b1x, b1y, b1w, b1h, 4);
+        c.fill();
+
+        c.fillStyle = '#243246';
+        c.beginPath();
+        c.roundRect(b1x + 1, b1y + 1, b1w - 2, 3, 2);
+        c.fill();
+
+        const b2x = px + 15 + ((h >> 4) % 6);
+        const b2y = py + 14 + ((h >> 6) % 6);
+        c.fillStyle = '#17202d';
+        c.beginPath();
+        c.roundRect(b2x, b2y, 11, 10, 3);
+        c.fill();
+
+        c.strokeStyle = '#090d14';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(px, py + (h % 24));
+        c.lineTo(px + ts, py + ((h >> 5) % 24));
+        c.stroke();
+      } else {
+        c.fillStyle = '#18212e';
+        c.fillRect(px, py, ts, ts);
+
+        c.fillStyle = '#202c3d';
+        c.beginPath();
+        c.roundRect(px + 4, py + 4, ts - 8, ts - 8, 4);
+        c.fill();
+      }
+
+      if (isCliffFace) {
+        // Múltiples lóbulos redondeados de piedra formando el borde del acantilado
+        c.fillStyle = '#3a4b63';
+        c.beginPath();
+        c.arc(px + 8, py + 6, 8, Math.PI, 0);
+        c.arc(px + 24, py + 6, 8, Math.PI, 0);
+        c.fill();
+
+        c.fillStyle = '#576f8e';
+        c.beginPath();
+        c.arc(px + 8, py + 4, 7, Math.PI, Math.PI * 1.6);
+        c.arc(px + 24, py + 4, 7, Math.PI, Math.PI * 1.6);
+        c.stroke();
+
+        // Cara frontal del acantilado con sombreado vertical
+        const cliffGrad = c.createLinearGradient(px, py + 8, px, py + ts);
+        cliffGrad.addColorStop(0, '#263447');
+        cliffGrad.addColorStop(0.4, '#1b2432');
+        cliffGrad.addColorStop(1, '#0e141d');
+        c.fillStyle = cliffGrad;
+        c.fillRect(px, py + 8, ts, ts - 8);
+
+        // Fisuras verticales y estrías
+        c.strokeStyle = '#32445c';
+        c.beginPath();
+        c.moveTo(px + 7, py + 8);
+        c.lineTo(px + 6, py + ts - 2);
+        c.moveTo(px + 23, py + 9);
+        c.lineTo(px + 25, py + ts - 2);
+        c.stroke();
+
+        c.strokeStyle = '#080b10';
+        c.beginPath();
+        c.moveTo(px + 8, py + 8);
+        c.lineTo(px + 7, py + ts);
+        c.stroke();
+
+        // Labio rocoso inferior
+        c.fillStyle = '#070a0f';
+        c.fillRect(px, py + ts - 2, ts, 2);
+      }
+
+      if (isBackEdge) {
+        c.fillStyle = '#3a4b63';
+        c.beginPath();
+        c.arc(px + 8, py + 4, 7, 0, Math.PI);
+        c.arc(px + 24, py + 4, 7, 0, Math.PI);
+        c.fill();
+
+        c.fillStyle = '#627c9f';
+        c.fillRect(px, py, ts, 2);
+      }
+
+      if (isLeftEdge) {
+        c.fillStyle = '#10151f';
+        c.fillRect(px, py, 3, ts);
+      }
+
+      if (isRightEdge) {
+        c.fillStyle = '#2f3e53';
+        c.fillRect(px + ts - 3, py, 3, ts);
+      }
+
+      // Musgo y líquenes bio-luminiscentes en las hendiduras rocosas
+      if ((isCliffFace || isLeftEdge || isRightEdge) && h % 2 === 0) {
+        c.fillStyle = '#275238';
+        const mx = px + (h % 18) + 4;
+        const my = py + ((h >> 3) % 14) + 6;
+        c.beginPath();
+        c.arc(mx, my, 4, 0, Math.PI * 2);
+        c.arc(mx + 3, my + 3, 3, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#42875b';
+        c.fillRect(mx - 1, my - 1, 2, 2);
+      }
+    }
+  }
+
+  // 4. Renderizar Base de Cristales Luminiscentes en el Mapa
+  if (map.crystals) {
+    for (const cr of map.crystals) {
+      renderCrystalStaticBase(c, cr);
+    }
+  }
+
   mapCache = { canvas, dpr, width, height };
+}
+
+function renderCrystalStaticBase(c, cr) {
+  const s = cr.scale || 1;
+
+  c.save();
+  c.translate(cr.x, cr.y);
+
+  // Pedestal de roca subterránea
+  c.fillStyle = '#0f1520';
+  c.beginPath();
+  c.ellipse(0, 4, 12 * s, 6 * s, 0, 0, Math.PI * 2);
+  c.fill();
+
+  // Espigas cristalinas poliédricas
+  const spikes = [
+    { dx: -7 * s, dy: 2, w: 6 * s, h: 16 * s, tilt: -0.28 },
+    { dx: 7 * s, dy: 2, w: 6 * s, h: 17 * s, tilt: 0.28 },
+    { dx: 0, dy: 0, w: 8 * s, h: 24 * s, tilt: 0.02 },
+  ];
+
+  for (const sp of spikes) {
+    c.save();
+    c.translate(sp.dx, sp.dy);
+    c.rotate(sp.tilt);
+
+    // Faceta izquierda
+    c.fillStyle = '#1e7840';
+    c.beginPath();
+    c.moveTo(0, -sp.h);
+    c.lineTo(-sp.w / 2, 0);
+    c.lineTo(0, 2);
+    c.closePath();
+    c.fill();
+
+    // Faceta derecha brillante
+    c.fillStyle = '#48ff8a';
+    c.beginPath();
+    c.moveTo(0, -sp.h);
+    c.lineTo(0, 2);
+    c.lineTo(sp.w / 2, 0);
+    c.closePath();
+    c.fill();
+
+    // Resalte del vértice central y punta en blanco/lima
+    c.fillStyle = '#b6ff3b';
+    c.beginPath();
+    c.moveTo(0, -sp.h);
+    c.lineTo(1.5, -sp.h * 0.4);
+    c.lineTo(0, 2);
+    c.lineTo(-1.5, -sp.h * 0.4);
+    c.closePath();
+    c.fill();
+
+    c.fillStyle = '#ffffff';
+    c.fillRect(-1, -sp.h, 2, 4);
+
+    c.restore();
+  }
+
+  c.restore();
+}
+
+function drawCrystals(now) {
+  if (!state.map?.crystals) return;
+
+  for (const cr of state.map.crystals) {
+    if (!isVisible(cr.x, cr.y, 64)) continue;
+
+    const pulse = Math.sin(now * 0.003 + cr.phase) * 0.18 + 0.82;
+    const radius = 42 * cr.scale * pulse;
+
+    // Resplandor radial verde/lima que ilumina las paredes y el suelo
+    const glow = ctx.createRadialGradient(cr.x, cr.y - 8, 2, cr.x, cr.y - 8, radius);
+    glow.addColorStop(0, 'rgba(72, 255, 138, 0.42)');
+    glow.addColorStop(0.35, 'rgba(182, 255, 59, 0.18)');
+    glow.addColorStop(1, 'rgba(72, 255, 138, 0)');
+
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cr.x, cr.y - 8, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Partículas luminiscentes / destellos flotantes (firefly motes)
+    for (let i = 0; i < 3; i++) {
+      const angle = (now * 0.0015 + i * 2.1 + cr.phase) % (Math.PI * 2);
+      const dist = 14 + Math.sin(now * 0.002 + i) * 6;
+      const px = cr.x + Math.cos(angle) * dist;
+      const py = cr.y - 12 + Math.sin(angle) * (dist * 0.6);
+
+      const sparkleAlpha = (Math.sin(now * 0.006 + i * 1.5) + 1) * 0.45;
+      ctx.fillStyle = `rgba(182, 255, 59, ${sparkleAlpha})`;
+      ctx.shadowColor = '#b6ff3b';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(px - 1, py - 1, 2, 2);
+      ctx.shadowBlur = 0;
+    }
+  }
 }
 
 function drawMap() {
@@ -924,21 +1254,108 @@ function drawPickups(pickups, now) {
 
     ctx.save();
     ctx.translate(item.x, item.y);
-    const pulse = Math.sin(now * 0.006) * 2;
+
+    const bob = Math.sin(now * 0.005 + item.id * 1.8) * 3.5;
+    const pulse = Math.sin(now * 0.008 + item.id) * 0.15 + 0.85;
 
     if (item.kind === 'shard') {
-      ctx.fillStyle = '#00f0ff';
+      // 1. Sombra cian en el suelo bajo el cristal flotante
+      ctx.beginPath();
+      ctx.ellipse(0, 12, 10 * pulse, 4.5 * pulse, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.32)';
       ctx.shadowColor = '#00f0ff';
       ctx.shadowBlur = 10;
-      ctx.rotate((now * 0.002) % (Math.PI * 2));
-      ctx.fillRect(-6 - pulse / 2, -6 - pulse / 2, 12 + pulse, 12 + pulse);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // 2. Halo de resplandor del cristal
+      const glow = ctx.createRadialGradient(0, bob, 1, 0, bob, 22 * pulse);
+      glow.addColorStop(0, 'rgba(0, 240, 255, 0.45)');
+      glow.addColorStop(1, 'rgba(0, 240, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, bob, 22 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Cristal de Diamante Cian Facetado (como en la imagen de referencia)
+      ctx.save();
+      ctx.translate(0, bob);
+
+      // Faceta superior izquierda
+      ctx.fillStyle = '#9cf9ff';
+      ctx.beginPath();
+      ctx.moveTo(0, -14);
+      ctx.lineTo(-8, -2);
+      ctx.lineTo(0, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Faceta superior derecha
+      ctx.fillStyle = '#45e9ff';
+      ctx.beginPath();
+      ctx.moveTo(0, -14);
+      ctx.lineTo(0, 0);
+      ctx.lineTo(8, -2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Faceta inferior izquierda
+      ctx.fillStyle = '#00b7d8';
+      ctx.beginPath();
+      ctx.moveTo(-8, -2);
+      ctx.lineTo(0, 12);
+      ctx.lineTo(0, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Faceta inferior derecha
+      ctx.fillStyle = '#008ba8';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 12);
+      ctx.lineTo(8, -2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Resalte central y destello brillante
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -14);
+      ctx.lineTo(0, 12);
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-1, -4, 2, 4);
+
+      ctx.restore();
     } else {
-      ctx.fillStyle = '#b6ff3b';
+      // Medkit: Cápsula de nanites de salud con resplandor lima
+      ctx.beginPath();
+      ctx.ellipse(0, 10, 8, 3.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(182, 255, 59, 0.3)';
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(0, bob);
       ctx.shadowColor = '#b6ff3b';
-      ctx.shadowBlur = 10;
-      ctx.fillRect(-3, -8, 6, 16);
-      ctx.fillRect(-8, -3, 16, 6);
+      ctx.shadowBlur = 12;
+
+      // Cruz médica y contenedor tecnológico
+      ctx.fillStyle = '#0f1712';
+      ctx.strokeStyle = '#b6ff3b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-9, -9, 18, 18, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#b6ff3b';
+      ctx.fillRect(-2.5, -6, 5, 12);
+      ctx.fillRect(-6, -2.5, 12, 5);
+      ctx.restore();
     }
+
     ctx.restore();
   }
 }
