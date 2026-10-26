@@ -23,7 +23,13 @@ test.describe('Flujo E2E 2: Creación de Sala, Asignación de Estado "Listo" y S
     await expect(page.locator('#view-room-waiting')).toHaveClass(/active/, { timeout: 8_000 });
     await expect(page.locator('#current-room-name')).toHaveText(testRoomName);
 
-    // 4. Comprobar lista de jugadores y asignación de estado "Listo"
+    // 4. Comprobar selección interactiva de clase de operador en la sala de espera
+    const scoutCard = page.locator('.class-card[data-class="scout"]');
+    await expect(scoutCard).toBeVisible();
+    await scoutCard.click();
+    await expect(scoutCard).toHaveClass(/active/);
+
+    // 5. Comprobar lista de jugadores y asignación de estado "Listo"
     const readyBtn = page.locator('#btn-toggle-ready');
     await expect(readyBtn).toHaveText('Marcar "Listo"');
 

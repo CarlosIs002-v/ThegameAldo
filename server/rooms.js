@@ -91,6 +91,7 @@ class RoomManager {
     const clientData = {
       id: playerId,
       username: username || `Operador_${playerId.slice(-4)}`,
+      classId: 'assault',
       ready: false,
       ping: 20,
     };
@@ -99,7 +100,7 @@ class RoomManager {
     this.clientToRoom.set(socket, roomId);
 
     // Añadir jugador al motor de la partida
-    room.match.addPlayer(playerId, clientData.username);
+    room.match.addPlayer(playerId, clientData.username, clientData.classId);
 
     // Si es el primer jugador o se une a una sala existente, arranca el loop si no estaba activo
     room.match.start();
@@ -107,7 +108,7 @@ class RoomManager {
     // Notificar a todos en la sala
     this.broadcastLobbyState(room);
 
-    return { roomId, playerId, username: clientData.username, map: room.match.map };
+    return { roomId, playerId, username: clientData.username, classId: clientData.classId, map: room.match.map };
   }
 
   leaveRoom(socket) {
@@ -132,6 +133,23 @@ class RoomManager {
     } else {
       this.broadcastLobbyState(room);
     }
+  }
+
+  setPlayerClass(socket, classId) {
+    const roomId = this.clientToRoom.get(socket);
+    if (!roomId) return null;
+
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+
+    const client = room.clients.get(socket);
+    if (!client) return null;
+
+    const validClass = ['assault', 'scout', 'tank'].includes(classId) ? classId : 'assault';
+    client.classId = validClass;
+    room.match.setPlayerClass(client.id, validClass);
+    this.broadcastLobbyState(room);
+    return { playerId: client.id, classId: validClass };
   }
 
   setPlayerReady(socket, readyState) {
@@ -163,6 +181,7 @@ class RoomManager {
     const players = Array.from(room.clients.values()).map((c) => ({
       id: c.id,
       username: c.username,
+      classId: c.classId || 'assault',
       ready: c.ready,
       ping: c.ping,
       color: room.match.players.get(c.id)?.color || '#00f0ff',

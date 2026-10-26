@@ -12,10 +12,10 @@ export function levelFromShards(shards) {
   return Math.min(PLAYER.maxLevel, 1 + Math.floor(safe / PLAYER.shardsPerLevel));
 }
 
-/** Vida máxima escalada linealmente con el nivel. */
-export function maxHpForLevel(level) {
+/** Vida máxima escalada linealmente con el nivel según la clase (baseHp). */
+export function maxHpForLevel(level, baseHp = PLAYER.baseHp) {
   const lvl = clampLevel(level);
-  return PLAYER.baseHp + PLAYER.hpPerLevel * (lvl - 1);
+  return (baseHp || PLAYER.baseHp) + PLAYER.hpPerLevel * (lvl - 1);
 }
 
 /** Multiplicador ofensivo: +15 % por nivel por encima de 1. */

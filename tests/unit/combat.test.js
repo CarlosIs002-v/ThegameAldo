@@ -84,4 +84,14 @@ describe('Fórmulas Matemáticas de Combate y Escalado (shared/combat.js)', () =
     expect(applyHeal(50, 30, 100)).toBe(80);
     expect(applyHeal(95, 20, 100)).toBe(100);
   });
+
+  it('soporta escalado de vida personalizado para clases de operadores (Scout y Tanque)', () => {
+    // Clase Scout (baseHp: 80)
+    expect(maxHpForLevel(1, 80)).toBe(80);
+    expect(maxHpForLevel(2, 80)).toBe(90);
+
+    // Clase Tanque (baseHp: 160)
+    expect(maxHpForLevel(1, 160)).toBe(160);
+    expect(maxHpForLevel(3, 160)).toBe(180);
+  });
 });

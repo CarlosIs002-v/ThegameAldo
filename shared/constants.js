@@ -42,6 +42,48 @@ export const PLAYER = Object.freeze({
   shardsPerLevel: 3,
 });
 
+export const CLASSES = Object.freeze({
+  assault: {
+    id: 'assault',
+    name: 'Asalto',
+    role: 'Versátil & Equilibrado',
+    desc: 'Cadencia estándar y velocidad balanceada',
+    speed: 190,
+    baseHp: 100,
+    fireCooldownMs: 280,
+    projectileSpeed: 540,
+    armor: 0,
+    color: '#00f0ff',
+    icon: '⚡',
+  },
+  scout: {
+    id: 'scout',
+    name: 'Explorador',
+    role: 'Velocista Supersónico',
+    desc: 'Alta movilidad y ráfaga de disparo veloz',
+    speed: 230,
+    baseHp: 80,
+    fireCooldownMs: 200,
+    projectileSpeed: 620,
+    armor: 0,
+    color: '#b6ff3b',
+    icon: '🏹',
+  },
+  tank: {
+    id: 'tank',
+    name: 'Juggernaut',
+    role: 'Blindaje Pesado',
+    desc: 'Gran resistencia al daño con disparos pesados',
+    speed: 155,
+    baseHp: 140,
+    fireCooldownMs: 360,
+    projectileSpeed: 460,
+    armor: 15,
+    color: '#ffb020',
+    icon: '🛡️',
+  },
+});
+
 export const PROJECTILE = Object.freeze({
   radius: 4,
   speed: 540, // px / s

@@ -170,6 +170,14 @@ export function startServer(port = process.env.PORT || 3000) {
             break;
           }
 
+          case 'select_class': {
+            const result = roomManager.setPlayerClass(ws, payload.classId);
+            if (result) {
+              ws.send(JSON.stringify({ type: 'class_ack', ...result }));
+            }
+            break;
+          }
+
           case 'set_ready': {
             const result = roomManager.setPlayerReady(ws, payload.ready);
             if (result) {

@@ -1,6 +1,7 @@
 import {
   SERVER_TICK_RATE,
   PLAYER,
+  CLASSES,
   PROJECTILE,
   PICKUP,
   PLAYER_COLORS,
@@ -38,6 +39,7 @@ export class GameMatch {
     this.nextProjId = 1;
     this.nextPickupId = 1;
     this.lastPickupSpawn = Date.now();
+    this.tickEvents = [];
 
     // Spawns iniciales de pickups
     this.spawnInitialPickups();
@@ -62,25 +64,30 @@ export class GameMatch {
     });
   }
 
-  addPlayer(id, username) {
+  addPlayer(id, username, classId = 'assault') {
     const spawnIndex = this.players.size % Math.max(1, this.map.spawns.length);
     const spawn = this.map.spawns[spawnIndex] || { x: 100, y: 100 };
     const colorIndex = this.players.size % PLAYER_COLORS.length;
+    const classCfg = CLASSES[classId] || CLASSES.assault;
 
     const player = {
       id,
       username,
+      classId: classCfg.id,
       color: PLAYER_COLORS[colorIndex],
       x: spawn.x,
       y: spawn.y,
-      hp: PLAYER.baseHp,
-      maxHp: PLAYER.baseHp,
+      hp: classCfg.baseHp,
+      maxHp: classCfg.baseHp,
       level: 1,
       shards: 0,
       kills: 0,
       deaths: 0,
       radius: PLAYER.radius,
-      speed: PLAYER.speed,
+      speed: classCfg.speed,
+      armor: classCfg.armor,
+      fireCooldownMs: classCfg.fireCooldownMs,
+      projectileSpeed: classCfg.projectileSpeed,
       lastShotTime: 0,
       deadUntil: 0,
       lastInputSeq: 0,
@@ -90,6 +97,19 @@ export class GameMatch {
 
     this.players.set(id, player);
     return player;
+  }
+
+  setPlayerClass(id, classId) {
+    const player = this.players.get(id);
+    if (!player) return;
+    const classCfg = CLASSES[classId] || CLASSES.assault;
+    player.classId = classCfg.id;
+    player.speed = classCfg.speed;
+    player.armor = classCfg.armor;
+    player.fireCooldownMs = classCfg.fireCooldownMs;
+    player.projectileSpeed = classCfg.projectileSpeed;
+    player.maxHp = maxHpForLevel(player.level, classCfg.baseHp);
+    player.hp = Math.min(player.hp, player.maxHp);
   }
 
   removePlayer(id) {
@@ -130,6 +150,7 @@ export class GameMatch {
     const dt = Math.min(0.1, (now - this.lastTickTime) / 1000);
     this.lastTickTime = now;
     this.tick++;
+    this.tickEvents = [];
 
     // 1. Simulación de jugadores
     for (const player of this.players.values()) {
@@ -162,7 +183,7 @@ export class GameMatch {
       player.y = newPos.y;
 
       // Disparo
-      if (player.latestInput.shooting && now - player.lastShotTime >= PLAYER.fireCooldownMs) {
+      if (player.latestInput.shooting && now - player.lastShotTime >= (player.fireCooldownMs || PLAYER.fireCooldownMs)) {
         player.lastShotTime = now;
         this.fireProjectile(player, player.latestInput.aimAngle);
       }
@@ -171,13 +192,33 @@ export class GameMatch {
       for (let i = this.pickups.length - 1; i >= 0; i--) {
         const item = this.pickups[i];
         if (circlesOverlap(player.x, player.y, player.radius, item.x, item.y, item.radius)) {
+          const prevLevel = player.level;
           if (item.kind === 'shard') {
             player.shards++;
             player.level = levelFromShards(player.shards);
-            player.maxHp = maxHpForLevel(player.level);
+            const classCfg = CLASSES[player.classId] || CLASSES.assault;
+            player.maxHp = maxHpForLevel(player.level, classCfg.baseHp);
+            if (player.level > prevLevel) {
+              this.tickEvents.push({
+                type: 'levelup',
+                playerId: player.id,
+                level: player.level,
+                x: Number(player.x.toFixed(2)),
+                y: Number(player.y.toFixed(2)),
+              });
+            }
           } else if (item.kind === 'medkit') {
             player.hp = applyHeal(player.hp, PICKUP.medkitHeal, player.maxHp);
           }
+
+          this.tickEvents.push({
+            type: 'pickup',
+            kind: item.kind,
+            x: Number(item.x.toFixed(2)),
+            y: Number(item.y.toFixed(2)),
+            playerId: player.id,
+          });
+
           this.pickups.splice(i, 1);
         }
       }
@@ -200,6 +241,13 @@ export class GameMatch {
         now - p.born > PROJECTILE.lifetimeMs ||
         isWallAt(this.map, p.x, p.y)
       ) {
+        if (isWallAt(this.map, p.x, p.y)) {
+          this.tickEvents.push({
+            type: 'wall_hit',
+            x: Number(p.x.toFixed(2)),
+            y: Number(p.y.toFixed(2)),
+          });
+        }
         this.projectiles.splice(i, 1);
         continue;
       }
@@ -213,11 +261,30 @@ export class GameMatch {
           const outcome = applyDamage(target.hp, p.damage);
           target.hp = outcome.hp;
 
+          this.tickEvents.push({
+            type: 'hit',
+            x: Number(target.x.toFixed(2)),
+            y: Number(target.y.toFixed(2)),
+            damage: p.damage,
+            crit: p.crit,
+            targetId: target.id,
+            attackerId: p.ownerId,
+          });
+
           if (outcome.killed) {
             target.deaths++;
             target.deadUntil = now + PLAYER.respawnMs;
             const attacker = this.players.get(p.ownerId);
             if (attacker) attacker.kills++;
+            this.tickEvents.push({
+              type: 'kill',
+              killerId: attacker ? attacker.id : null,
+              killerName: attacker ? attacker.username : 'Zona',
+              victimId: target.id,
+              victimName: target.username,
+              x: Number(target.x.toFixed(2)),
+              y: Number(target.y.toFixed(2)),
+            });
           }
 
           hit = true;
@@ -242,8 +309,9 @@ export class GameMatch {
       crit: isCrit,
     });
 
-    const vx = Math.cos(angle) * PROJECTILE.speed;
-    const vy = Math.sin(angle) * PROJECTILE.speed;
+    const pSpeed = player.projectileSpeed || PROJECTILE.speed;
+    const vx = Math.cos(angle) * pSpeed;
+    const vy = Math.sin(angle) * pSpeed;
 
     this.projectiles.push({
       id: this.nextProjId++,
@@ -257,6 +325,14 @@ export class GameMatch {
       damage,
       crit: isCrit,
     });
+
+    this.tickEvents.push({
+      type: 'shoot',
+      playerId: player.id,
+      crit: isCrit,
+      x: Number(player.x.toFixed(2)),
+      y: Number(player.y.toFixed(2)),
+    });
   }
 
   getSnapshot() {
@@ -264,9 +340,11 @@ export class GameMatch {
       type: 'snapshot',
       tick: this.tick,
       t: Date.now(),
+      events: this.tickEvents,
       players: Array.from(this.players.values()).map((p) => ({
         id: p.id,
         username: p.username,
+        classId: p.classId || 'assault',
         color: p.color,
         x: Number(p.x.toFixed(2)),
         y: Number(p.y.toFixed(2)),

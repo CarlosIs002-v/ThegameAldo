@@ -39,6 +39,9 @@
         <span class="user-tag" id="user-tag">Operador Invitado</span>
         <button id="btn-show-auth" class="btn-xs">Acceder</button>
       </div>
+      <button id="btn-header-sound" class="btn-xs btn-sound" title="Alternar Sonido" aria-label="Alternar Sonido" type="button">
+        <span id="header-sound-icon">🔊</span>
+      </button>
     </div>
   </header>
 
@@ -88,6 +91,37 @@
           <!-- Jugadores en la sala -->
         </div>
 
+        <!-- Selector de Clase de Operador -->
+        <div class="class-selection-container">
+          <span class="sub-label">ESPECIALIZACIÓN TÁCTICA</span>
+          <div class="class-cards-grid" id="class-cards-grid">
+            <button type="button" class="class-card active" data-class="assault" aria-label="Clase Asalto">
+              <div class="class-card-header">
+                <span class="class-icon">⚡</span>
+                <strong class="class-title">ASALTO</strong>
+              </div>
+              <p class="class-desc">Versátil · Cadencia equilibrada</p>
+              <div class="class-meta">HP: 100 | VEL: 190 | CAD: Media</div>
+            </button>
+            <button type="button" class="class-card" data-class="scout" aria-label="Clase Explorador">
+              <div class="class-card-header">
+                <span class="class-icon">🏹</span>
+                <strong class="class-title">EXPLORADOR</strong>
+              </div>
+              <p class="class-desc">Velocidad sónica · Ráfaga veloz</p>
+              <div class="class-meta">HP: 80 | VEL: 230 | CAD: Rápida</div>
+            </button>
+            <button type="button" class="class-card" data-class="tank" aria-label="Clase Juggernaut">
+              <div class="class-card-header">
+                <span class="class-icon">🛡️</span>
+                <strong class="class-title">JUGGERNAUT</strong>
+              </div>
+              <p class="class-desc">Blindaje +15 · Plasma pesado</p>
+              <div class="class-meta">HP: 140 | VEL: 155 | CAD: Pesada</div>
+            </button>
+          </div>
+        </div>
+
         <div class="room-footer-actions">
           <button id="btn-leave-room" class="cyber-btn cyber-btn-danger">Abandonar Sala</button>
           <button id="btn-room-fullscreen" class="cyber-btn cyber-btn-secondary" type="button">
@@ -130,11 +164,17 @@
         </div>
 
         <div class="hud-right">
+          <button id="btn-toggle-sound" class="btn-xs btn-sound" title="Alternar Sonido" aria-label="Alternar Sonido" type="button">
+            <span id="sound-icon">🔊</span>
+          </button>
           <button id="btn-toggle-fullscreen" class="btn-xs btn-fullscreen" title="Pantalla Completa" aria-label="Pantalla Completa" type="button">
             <span class="fs-icon">⛶</span> <span class="fs-label">Pantalla Completa</span>
           </button>
           <button id="btn-exit-match" class="btn-xs btn-exit">Salir al Lobby</button>
         </div>
+
+        <!-- Feed de Bajas / Anuncios de Combate -->
+        <div id="kill-feed" class="kill-feed"></div>
       </div>
 
       <!-- Lienzo Principal Canvas 2D -->
