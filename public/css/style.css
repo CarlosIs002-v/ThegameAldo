@@ -401,6 +401,33 @@ body.in-game {
   pointer-events: auto;
 }
 
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-fullscreen {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid var(--color-cyan);
+  color: var(--color-cyan);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-fullscreen:hover {
+  background: var(--color-cyan);
+  color: var(--bg-deep);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+}
+
+.btn-fullscreen .fs-icon {
+  font-size: 13px;
+}
+
 .hud-bar-container {
   background: rgba(7, 9, 14, 0.85);
   border: 1px solid var(--border-neon);
@@ -756,10 +783,45 @@ body.is-touch .touch-controls-layer {
   margin-top: 20px;
 }
 
+/* Soporte nativo para pantalla completa en móviles y navegadores */
+:fullscreen,
+:-webkit-full-screen {
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+:fullscreen #view-game,
+:-webkit-full-screen #view-game {
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  padding: 0;
+  margin: 0;
+}
+
+:fullscreen .cyber-header,
+:-webkit-full-screen .cyber-header {
+  display: none !important;
+}
+
 /* Responsividad */
 
 /* Durante la partida en pantallas táctiles/pequeñas el canvas ocupa toda la pantalla. */
 @media (max-width: 1024px) {
+  body.in-game {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+  }
+
   body.in-game .cyber-header {
     display: none;
   }
@@ -767,10 +829,21 @@ body.is-touch .touch-controls-layer {
   body.in-game #view-game {
     height: 100vh;
     height: 100dvh;
+    width: 100vw;
+    width: 100dvw;
   }
 }
 
 @media (max-width: 768px) {
+  .btn-fullscreen .fs-label {
+    display: none;
+  }
+
+  .btn-fullscreen {
+    padding: 3px 6px;
+    font-size: 13px;
+  }
+
   .cyber-header {
     padding-left: max(10px, env(safe-area-inset-left));
     padding-right: max(10px, env(safe-area-inset-right));

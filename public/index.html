@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#07090e">
   <title>CyberGrid: Breach & Sync — Multijugador Server-Authoritative</title>
-  <meta name="description" content="Videojuego multijugador Canvas 2D en tiempo real con arquitectura Server-Authoritative y WebSockets activos.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CyberGrid">
+  <meta name="application-name" content="CyberGrid">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -84,6 +90,9 @@
 
         <div class="room-footer-actions">
           <button id="btn-leave-room" class="cyber-btn cyber-btn-danger">Abandonar Sala</button>
+          <button id="btn-room-fullscreen" class="cyber-btn cyber-btn-secondary" type="button">
+            ⛶ Pantalla Completa
+          </button>
           <button id="btn-toggle-ready" class="cyber-btn cyber-btn-accent" data-ready="false">
             Marcar "Listo"
           </button>
@@ -121,6 +130,9 @@
         </div>
 
         <div class="hud-right">
+          <button id="btn-toggle-fullscreen" class="btn-xs btn-fullscreen" title="Pantalla Completa" aria-label="Pantalla Completa" type="button">
+            <span class="fs-icon">⛶</span> <span class="fs-label">Pantalla Completa</span>
+          </button>
           <button id="btn-exit-match" class="btn-xs btn-exit">Salir al Lobby</button>
         </div>
       </div>
@@ -161,6 +173,9 @@
             <div class="rotate-icon">↻</div>
             <div class="rotate-text">Gira tu dispositivo</div>
             <div class="rotate-subtext">Para jugar en modo horizontal</div>
+            <button id="btn-rotate-fullscreen" class="cyber-btn cyber-btn-primary" type="button" style="margin-top: 14px;">
+              ⛶ Activar Pantalla Completa
+            </button>
           </div>
         </div>
       </div>

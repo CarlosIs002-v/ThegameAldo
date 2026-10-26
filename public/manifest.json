@@ -1,0 +1,22 @@
+{
+  "name": "CyberGrid: Breach & Sync",
+  "short_name": "CyberGrid",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#07090e",
+  "theme_color": "#07090e",
+  "description": "Videojuego multijugador Canvas 2D en tiempo real con arquitectura Server-Authoritative y WebSockets activos.",
+  "icons": [
+    {
+      "src": "/img/soldier_cyan_front.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/img/soldier_cyan_front.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

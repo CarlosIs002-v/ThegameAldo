@@ -113,6 +113,7 @@ const elements = {
   currentRoomId: document.getElementById('current-room-id'),
   playersRoster: document.getElementById('players-roster'),
   btnLeaveRoom: document.getElementById('btn-leave-room'),
+  btnRoomFullscreen: document.getElementById('btn-room-fullscreen'),
   btnToggleReady: document.getElementById('btn-toggle-ready'),
 
   // Game & Canvas
@@ -126,7 +127,10 @@ const elements = {
   playerCoordinates: document.getElementById('player-coordinates'),
   telemetryX: document.getElementById('telemetry-x'),
   telemetryY: document.getElementById('telemetry-y'),
+  btnToggleFullscreen: document.getElementById('btn-toggle-fullscreen'),
   btnExitMatch: document.getElementById('btn-exit-match'),
+  rotateOverlay: document.getElementById('rotate-overlay'),
+  btnRotateFullscreen: document.getElementById('btn-rotate-fullscreen'),
 
   // Controles Táctiles
   touchControls: document.getElementById('touch-controls'),
@@ -168,6 +172,7 @@ export function init() {
   setupTouchControls();
   setupUIEvents();
   setupCanvasResize();
+  setupFullscreenListeners();
   fetchRooms();
 
   // Iniciar bucle de renderizado desacoplado a 60 FPS
@@ -392,10 +397,67 @@ function showView(viewId) {
 
   if (viewId === 'view-game') {
     scheduleCanvasResize();
-    lockToLandscape();
+    enterFullscreen();
   } else {
     unlockOrientation();
   }
+}
+
+// --- Control de Pantalla Completa y Orientación (Móvil y Escritorio) ---
+async function enterFullscreen() {
+  try {
+    const docEl = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (docEl.requestFullscreen) {
+        await docEl.requestFullscreen({ navigationUI: 'hide' });
+      } else if (docEl.webkitRequestFullscreen) {
+        await docEl.webkitRequestFullscreen();
+      }
+    }
+  } catch {
+    // Si las políticas de seguridad del navegador restringen fullscreen sin gesto, se captura limpiamente
+  }
+  lockToLandscape();
+}
+
+async function exitFullscreen() {
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      }
+    }
+  } catch {
+    // Ignorar errores al salir de pantalla completa
+  }
+  unlockOrientation();
+}
+
+async function toggleFullscreen() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    await exitFullscreen();
+  } else {
+    await enterFullscreen();
+  }
+}
+
+function setupFullscreenListeners() {
+  const onFsChange = () => {
+    const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    document.body.classList.toggle('is-fullscreen', isFs);
+    if (elements.btnToggleFullscreen) {
+      const icon = elements.btnToggleFullscreen.querySelector('.fs-icon');
+      const label = elements.btnToggleFullscreen.querySelector('.fs-label');
+      if (icon) icon.textContent = isFs ? '🗗' : '⛶';
+      if (label) label.textContent = isFs ? 'Salir Pantalla Completa' : 'Pantalla Completa';
+    }
+    scheduleCanvasResize();
+  };
+
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
 }
 
 function lockToLandscape() {
@@ -1171,14 +1233,39 @@ function setupUIEvents() {
 
   // Sala de Espera
   elements.btnLeaveRoom.addEventListener('click', leaveCurrentRoom);
+  elements.btnRoomFullscreen?.addEventListener('click', enterFullscreen);
 
   elements.btnToggleReady.addEventListener('click', () => {
     if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
     const nextState = !state.isReady;
+    if (nextState) {
+      enterFullscreen();
+    }
     state.socket.send(JSON.stringify({ type: 'set_ready', ready: nextState }));
   });
 
   elements.btnExitMatch.addEventListener('click', leaveCurrentRoom);
+  elements.btnToggleFullscreen?.addEventListener('click', toggleFullscreen);
+
+  // Botón y tap de rotación / Pantalla Completa
+  elements.btnRotateFullscreen?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    enterFullscreen();
+  });
+  elements.rotateOverlay?.addEventListener('click', () => {
+    enterFullscreen();
+  });
+
+  // Tap en canvas para activar/restaurar pantalla completa en móvil
+  elements.canvasWrapper?.addEventListener(
+    'pointerdown',
+    () => {
+      if (state.isTouch && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        enterFullscreen();
+      }
+    },
+    { passive: true }
+  );
 
   // Modal contraseña de sala protegida
   elements.btnCloseJoinPassword.addEventListener('click', () => {
@@ -1198,6 +1285,7 @@ function leaveCurrentRoom() {
   if (state.socket && state.socket.readyState === WebSocket.OPEN && state.currentRoomId) {
     state.socket.send(JSON.stringify({ type: 'leave_room' }));
   }
+  exitFullscreen();
   clearGameState();
   showView('view-lobby');
   fetchRooms();

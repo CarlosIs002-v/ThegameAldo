@@ -6,6 +6,7 @@ test.describe('Flujo E2E 4: Adaptación Móvil, Joysticks Táctiles y Apuntado',
 
     await page.click('#btn-quick-join');
     await expect(page.locator('#view-room-waiting')).toHaveClass(/active/, { timeout: 10_000 });
+    await expect(page.locator('#btn-room-fullscreen')).toBeVisible();
 
     await page.click('#btn-toggle-ready');
     await expect(page.locator('#view-game')).toHaveClass(/active/, { timeout: 10_000 });
@@ -15,6 +16,7 @@ test.describe('Flujo E2E 4: Adaptación Móvil, Joysticks Táctiles y Apuntado',
     await expect(page.locator('#touch-controls')).toBeVisible();
     await expect(page.locator('#touch-joystick')).toBeVisible();
     await expect(page.locator('#touch-aim')).toBeVisible();
+    await expect(page.locator('#btn-toggle-fullscreen')).toBeVisible();
 
     const coordsBox = page.locator('#player-coordinates');
     await expect(coordsBox).not.toHaveAttribute('data-player-x', '0', { timeout: 10_000 });
