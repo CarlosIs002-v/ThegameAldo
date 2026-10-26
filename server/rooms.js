@@ -165,6 +165,7 @@ class RoomManager {
       username: c.username,
       ready: c.ready,
       ping: c.ping,
+      color: room.match.players.get(c.id)?.color || '#00f0ff',
     }));
 
     room.broadcast({

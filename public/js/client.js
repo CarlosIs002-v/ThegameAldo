@@ -56,27 +56,34 @@ const state = {
   viewRect: null,
 };
 
-// --- Sprites del Soldado Azul (operador1) ---
-const soldierSprites = {
-  front: new Image(),
-  right: new Image(),
-  left: new Image(),
-  loaded: false,
+// --- Diccionario y Carga de Sprites de Operadores (Todos los Colores) ---
+const COLOR_MAP = {
+  '#00f0ff': 'cyan',
+  '#ff2bd6': 'magenta',
+  '#b6ff3b': 'lime',
+  '#ffb020': 'orange',
+  '#8a7bff': 'purple',
+  '#ff5a5a': 'red',
+  '#3bffb0': 'teal',
+  '#ffffff': 'white',
 };
-let spritesReady = 0;
-const markSpriteLoaded = () => {
-  spritesReady++;
-  soldierSprites.loaded = spritesReady >= 3;
-};
-soldierSprites.front.onload = markSpriteLoaded;
-soldierSprites.right.onload = markSpriteLoaded;
-soldierSprites.left.onload = markSpriteLoaded;
-soldierSprites.front.src = '/img/soldier_front.png';
-soldierSprites.right.src = '/img/soldier_right.png';
-soldierSprites.left.src = '/img/soldier_left.png';
 
-// Historial para determinar la orientación de jugadores remotos
-const playerPrevPositions = new Map();
+const OPERATOR_COLORS = Object.values(COLOR_MAP);
+const DIRECTIONS = ['front', 'back', 'right', 'left'];
+
+// Cache de imágenes: operatorSprites[color][direction] -> HTMLImageElement
+const operatorSprites = {};
+for (const c of OPERATOR_COLORS) {
+  operatorSprites[c] = {};
+  for (const d of DIRECTIONS) {
+    const img = new Image();
+    img.src = `/img/soldier_${c}_${d}.png`;
+    operatorSprites[c][d] = img;
+  }
+}
+
+// Historial para determinar la orientación y cadencia de paso del soldado
+const playerOrientations = new Map();
 
 // Caché del mapa pre-renderizado
 let mapCache = null;
@@ -186,11 +193,16 @@ function setupNetwork() {
   });
 
   state.socket.addEventListener('message', (event) => {
+    let data;
     try {
-      const data = JSON.parse(event.data);
-      handleServerMessage(data);
+      data = JSON.parse(event.data);
     } catch {
-      // Ignorar paquetes corruptos
+      return;
+    }
+    try {
+      handleServerMessage(data);
+    } catch (err) {
+      console.error('[WS Message Error]:', err);
     }
   });
 
@@ -785,7 +797,7 @@ function renderGame(now, dt) {
 
   // 4. Renderizar Jugadores con Interpolación / Predicción
   if (state.currentSnapshot?.players) {
-    drawPlayers(state.currentSnapshot.players, renderTime);
+    drawPlayers(state.currentSnapshot.players, renderTime, dt);
   }
 
   ctx.restore();
@@ -886,7 +898,7 @@ function drawProjectiles(projectiles, renderTime) {
   }
 }
 
-function drawPlayers(players, renderTime) {
+function drawPlayers(players, renderTime, dt = 0.016) {
   for (const p of players) {
     let pos;
     if (p.id === state.myPlayerId && state.predicted.initialized && !p.dead) {
@@ -899,6 +911,69 @@ function drawPlayers(players, renderTime) {
     if (!pos) continue;
     if (p.id !== state.myPlayerId && !isVisible(pos.x, pos.y, 80)) continue;
 
+    // Calcular desplazamiento y velocidad real entre fotogramas
+    const orient = playerOrientations.get(p.id) || {
+      prevX: pos.x,
+      prevY: pos.y,
+      lastDir: 'front',
+      walkTime: 0,
+    };
+
+    const dx = pos.x - orient.prevX;
+    const dy = pos.y - orient.prevY;
+    orient.prevX = pos.x;
+    orient.prevY = pos.y;
+
+    const moveDist = Math.hypot(dx, dy);
+    const isMoving = moveDist > 0.04;
+    if (isMoving) {
+      orient.walkTime += dt;
+    }
+
+    // Orientación precisa hacia donde va el operador
+    let dir = orient.lastDir;
+
+    if (isMoving) {
+      const moveAngle = Math.atan2(dy, dx);
+      const deg = (moveAngle * 180) / Math.PI;
+
+      if (deg >= -45 && deg <= 45) {
+        dir = 'right';
+      } else if (deg > 45 && deg < 135) {
+        dir = 'front'; // Hacia abajo / cámara
+      } else if (deg < -45 && deg > -135) {
+        dir = 'back'; // Hacia arriba / espaldas
+      } else {
+        dir = 'left';
+      }
+      orient.lastDir = dir;
+    } else if (p.id === state.myPlayerId) {
+      // Si está detenido y es el jugador local, orientarse hacia el ángulo de puntería (mouse o touch)
+      const deg = (state.aimAngle * 180) / Math.PI;
+
+      if (deg >= -45 && deg <= 45) {
+        dir = 'right';
+      } else if (deg > 45 && deg < 135) {
+        dir = 'front';
+      } else if (deg < -45 && deg > -135) {
+        dir = 'back';
+      } else {
+        dir = 'left';
+      }
+      orient.lastDir = dir;
+    }
+
+    playerOrientations.set(p.id, orient);
+
+    // Obtener sprite correspondiente al color y dirección del operador
+    const colorKey = COLOR_MAP[p.color?.toLowerCase()] || 'cyan';
+    const spriteSet = operatorSprites[colorKey] || operatorSprites['cyan'];
+    const sprite = spriteSet ? spriteSet[dir] : null;
+
+    // Efecto de paso (bobbing) e inclinación según desplazamiento
+    const bob = isMoving ? Math.sin(orient.walkTime * 14) * 2.5 : 0;
+    const tilt = isMoving ? Math.max(-0.10, Math.min(0.10, (dx / (Math.abs(dy) + 0.1)) * 0.07)) : 0;
+
     ctx.save();
     ctx.translate(pos.x, pos.y);
 
@@ -906,42 +981,32 @@ function drawPlayers(players, renderTime) {
       ctx.globalAlpha = 0.3;
     }
 
-    const prevPos = playerPrevPositions.get(p.id) || { x: pos.x, y: pos.y };
-    const dx = pos.x - prevPos.x;
-    playerPrevPositions.set(p.id, { x: pos.x, y: pos.y });
+    // Halo / sombra de energía en el suelo con el color característico del operador
+    const glowColor = p.color || '#00f0ff';
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 16, 7, 0, 0, Math.PI * 2);
+    ctx.fillStyle = glowColor;
+    ctx.globalAlpha = p.dead ? 0.15 : 0.35;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = state.isTouch ? 8 : 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = p.dead ? 0.3 : 1.0;
 
-    let soldierSprite = soldierSprites.front;
-    if (p.id === state.myPlayerId) {
-      const facing = Math.cos(state.aimAngle);
-      if (facing > 0.35) soldierSprite = soldierSprites.right;
-      else if (facing < -0.35) soldierSprite = soldierSprites.left;
-    } else if (dx > 0.08) {
-      soldierSprite = soldierSprites.right;
-    } else if (dx < -0.08) {
-      soldierSprite = soldierSprites.left;
-    }
-
-    const isBlueSoldier = p.color === '#00f0ff' || !p.color;
-
-    if (soldierSprites.loaded && isBlueSoldier) {
-      // Halo / sombra de energía cian en el suelo
-      ctx.beginPath();
-      ctx.ellipse(0, 12, 16, 7, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0, 240, 255, 0.35)';
-      ctx.shadowColor = '#00f0ff';
-      ctx.shadowBlur = state.isTouch ? 8 : 12;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
+    // Dibujar sprite del operador
+    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+      ctx.save();
+      ctx.rotate(tilt);
       const spriteW = 32;
       const spriteH = 46;
-      ctx.drawImage(soldierSprite, -spriteW / 2, -28, spriteW, spriteH);
+      ctx.drawImage(sprite, -spriteW / 2, -28 + bob, spriteW, spriteH);
+      ctx.restore();
     } else {
       // Fallback a indicador geométrico
       ctx.beginPath();
       ctx.arc(0, 0, 14, 0, Math.PI * 2);
-      ctx.fillStyle = p.color || '#00f0ff';
-      ctx.shadowColor = p.color || '#00f0ff';
+      ctx.fillStyle = glowColor;
+      ctx.shadowColor = glowColor;
       ctx.shadowBlur = 14;
       ctx.fill();
       ctx.strokeStyle = '#fff';
@@ -952,18 +1017,18 @@ function drawPlayers(players, renderTime) {
     // Barra de salud superior
     const barW = 34;
     const barH = 4;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(-barW / 2, -36, barW, barH);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(-barW / 2, -38, barW, barH);
     const hpFrac = Math.max(0, Math.min(1, p.hp / p.maxHp));
     ctx.fillStyle = '#b6ff3b';
-    ctx.fillRect(-barW / 2, -36, barW * hpFrac, barH);
+    ctx.fillRect(-barW / 2, -38, barW * hpFrac, barH);
 
     // Etiqueta de nombre y nivel
     ctx.font = '10px Orbitron, sans-serif';
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.shadowBlur = 0;
-    ctx.fillText(`${p.username} [L${p.level}]`, 0, -42);
+    ctx.fillText(`${p.username} [L${p.level}]`, 0, -44);
 
     ctx.restore();
   }
@@ -1156,7 +1221,7 @@ function clearGameState() {
   state.inputSeq = 1;
   state.inputAccumulator = 0;
   state.viewRect = null;
-  playerPrevPositions.clear();
+  playerOrientations.clear();
   mapCache = null;
 
   elements.btnToggleReady.setAttribute('data-ready', 'false');
@@ -1231,19 +1296,23 @@ function joinRoom(roomId, password = null) {
 function renderLobbyRoster(lobby) {
   elements.currentRoomName.textContent = lobby.roomName;
   elements.playersRoster.innerHTML = lobby.players
-    .map(
-      (p) => `
+    .map((p) => {
+      const colorKey = COLOR_MAP[p.color?.toLowerCase()] || 'cyan';
+      return `
     <div class="roster-card">
-      <div>
-        <strong>${p.username}</strong>
-        <div style="font-size: 12px; color: var(--text-muted);">Ping: ${p.ping || 20}ms</div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <img src="/img/soldier_${colorKey}_front.png" style="width: 28px; height: 38px; object-fit: contain; filter: drop-shadow(0 0 6px ${p.color || '#00f0ff'});" alt="Operador">
+        <div>
+          <strong>${p.username}</strong>
+          <div style="font-size: 12px; color: var(--text-muted);">Ping: ${p.ping || 20}ms</div>
+        </div>
       </div>
       <span class="roster-ready-badge ${p.ready ? 'is-ready' : ''}">
         ${p.ready ? 'LISTO' : 'ESPERANDO'}
       </span>
     </div>
-  `
-    )
+  `;
+    })
     .join('');
 }
 
