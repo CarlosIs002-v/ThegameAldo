@@ -83,6 +83,10 @@ for (const c of OPERATOR_COLORS) {
   }
 }
 
+// Sprite del Botiquín de Salud Pixel Art (Medkit)
+const medkitSprite = new Image();
+medkitSprite.src = '/img/medkit.png';
+
 // Historial para determinar la orientación y cadencia de paso del soldado
 const playerOrientations = new Map();
 
@@ -1330,29 +1334,37 @@ function drawPickups(pickups, now) {
 
       ctx.restore();
     } else {
-      // Medkit: Cápsula de nanites de salud con resplandor lima
+      // Medkit: Maletín médico de salud (Pixel Art) con sombra y flotación sutil
       ctx.beginPath();
-      ctx.ellipse(0, 10, 8, 3.5, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(182, 255, 59, 0.3)';
+      ctx.ellipse(0, 11, 10, 4, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 67, 67, 0.3)';
       ctx.fill();
 
       ctx.save();
       ctx.translate(0, bob);
-      ctx.shadowColor = '#b6ff3b';
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#ff4343';
+      ctx.shadowBlur = 10;
 
-      // Cruz médica y contenedor tecnológico
-      ctx.fillStyle = '#0f1712';
-      ctx.strokeStyle = '#b6ff3b';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(-9, -9, 18, 18, 4);
-      ctx.fill();
-      ctx.stroke();
+      if (medkitSprite.complete && medkitSprite.naturalWidth > 0) {
+        const mw = 26;
+        const mh = 26;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(medkitSprite, -mw / 2, -mh / 2, mw, mh);
+        ctx.imageSmoothingEnabled = true;
+      } else {
+        // Respaldo vectorial en caso de carga pendiente
+        ctx.fillStyle = '#1a0d0d';
+        ctx.strokeStyle = '#ff4343';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(-10, -9, 20, 18, 4);
+        ctx.fill();
+        ctx.stroke();
 
-      ctx.fillStyle = '#b6ff3b';
-      ctx.fillRect(-2.5, -6, 5, 12);
-      ctx.fillRect(-6, -2.5, 12, 5);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-2.5, -6, 5, 12);
+        ctx.fillRect(-6, -2.5, 12, 5);
+      }
       ctx.restore();
     }
 
