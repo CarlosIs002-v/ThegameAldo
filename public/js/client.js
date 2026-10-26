@@ -89,15 +89,32 @@ const COLOR_MAP = {
 const OPERATOR_COLORS = Object.values(COLOR_MAP);
 const DIRECTIONS = ['front', 'back', 'right', 'left'];
 
-// Cache de imágenes: operatorSprites[color][direction] -> HTMLImageElement
+// Cache de imágenes con ciclo multi-frame para todos los colores:
+// operatorSprites[color][direction] -> Array de HTMLImageElement
 const operatorSprites = {};
 for (const c of OPERATOR_COLORS) {
-  operatorSprites[c] = {};
-  for (const d of DIRECTIONS) {
-    const img = new Image();
-    img.src = `/img/soldier_${c}_${d}.png`;
-    operatorSprites[c][d] = img;
-  }
+  operatorSprites[c] = {
+    front: [new Image(), new Image()],
+    back: [new Image(), new Image()],
+    right: [new Image(), new Image(), new Image(), new Image()],
+    left: [new Image(), new Image(), new Image(), new Image()],
+  };
+
+  operatorSprites[c].front[0].src = `/img/soldier_${c}_front.png`;
+  operatorSprites[c].front[1].src = `/img/soldier_${c}_front2.png`;
+
+  operatorSprites[c].back[0].src = `/img/soldier_${c}_back.png`;
+  operatorSprites[c].back[1].src = `/img/soldier_${c}_back2.png`;
+
+  operatorSprites[c].right[0].src = `/img/soldier_${c}_right.png`;
+  operatorSprites[c].right[1].src = `/img/soldier_${c}_right2.png`;
+  operatorSprites[c].right[2].src = `/img/soldier_${c}_right3.png`;
+  operatorSprites[c].right[3].src = `/img/soldier_${c}_right4.png`;
+
+  operatorSprites[c].left[0].src = `/img/soldier_${c}_left.png`;
+  operatorSprites[c].left[1].src = `/img/soldier_${c}_left2.png`;
+  operatorSprites[c].left[2].src = `/img/soldier_${c}_left3.png`;
+  operatorSprites[c].left[3].src = `/img/soldier_${c}_left4.png`;
 }
 
 // Sprite del Botiquín de Salud Pixel Art (Medkit)
@@ -113,6 +130,10 @@ const CHARACTER_TO_CLASS = {
   spectre: 'scout',
   titan: 'tank',
   nova: 'tactical',
+  viper: 'scout',
+  void: 'tactical',
+  inferno: 'assault',
+  phantom: 'tank',
 };
 
 const CLASS_TO_CHARACTER = {
@@ -1926,14 +1947,57 @@ function drawPlayers(players, renderTime, dt = 0.016) {
 
     playerOrientations.set(p.id, orient);
 
-    // Obtener sprite correspondiente al color y dirección del operador
+    // Obtener sprite correspondiente al color y dirección del operador con ciclo multi-frame
     const colorKey = COLOR_MAP[p.color?.toLowerCase()] || 'cyan';
     const spriteSet = operatorSprites[colorKey] || operatorSprites['cyan'];
-    const sprite = spriteSet ? spriteSet[dir] : null;
+    let sprite = null;
 
-    // Efecto de paso (bobbing) e inclinación según desplazamiento
-    const bob = isMoving ? Math.sin(orient.walkTime * 14) * 2.5 : 0;
-    const tilt = isMoving ? Math.max(-0.10, Math.min(0.10, (dx / (Math.abs(dy) + 0.1)) * 0.07)) : 0;
+    if (spriteSet) {
+      if (isMoving) {
+        if (dir === 'right' || dir === 'left') {
+          // Ciclo de carrera de 4 fotogramas sincronizado a ~11 FPS
+          const frameIdx = Math.floor((orient.walkTime * 11) % 4);
+          const list = spriteSet[dir] || [];
+          sprite = list[frameIdx] || list[0];
+        } else if (dir === 'front') {
+          // Ciclo de marcha frontal de 2 fotogramas
+          const frameIdx = Math.floor((orient.walkTime * 8) % 2);
+          const list = spriteSet.front || [];
+          sprite = list[frameIdx] || list[0];
+        } else {
+          // Ciclo de marcha de espaldas de 2 fotogramas
+          const frameIdx = Math.floor((orient.walkTime * 8) % 2);
+          const list = spriteSet.back || [];
+          sprite = list[frameIdx] || list[0];
+        }
+      } else {
+        // En reposo (idle): postura base limpia
+        const dirList = spriteSet[dir];
+        sprite = Array.isArray(dirList) ? dirList[0] : dirList;
+      }
+    }
+
+    const glowColor = p.color || '#00f0ff';
+
+    // Fluidez de movimiento: respiración idle sutil y balanceo en carrera
+    const idleBreathe = !isMoving ? Math.sin((renderTime + (p.id ? p.id.charCodeAt(0) * 120 : 0)) * 0.004) * 0.9 : 0;
+    const walkBob = isMoving ? Math.sin(orient.walkTime * 15) * 1.6 : 0;
+    const bob = walkBob + idleBreathe;
+    const tilt = isMoving ? Math.max(-0.09, Math.min(0.09, (dx / (Math.abs(dy) + 0.1)) * 0.06)) : 0;
+
+    // Estela de partículas de fluidez de movimiento al desplazarse
+    if (isMoving && Math.random() < 0.28) {
+      state.particles.push({
+        x: pos.x + (Math.random() - 0.5) * 8,
+        y: pos.y + 10 + (Math.random() - 0.5) * 3,
+        vx: -dx * 6 + (Math.random() - 0.5) * 8,
+        vy: -dy * 6 - Math.random() * 6,
+        color: glowColor,
+        size: Math.random() * 2.2 + 1.2,
+        life: 0.26,
+        maxLife: 0.26,
+      });
+    }
 
     ctx.save();
     ctx.translate(pos.x, pos.y);
@@ -1943,7 +2007,6 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     }
 
     // Halo / sombra de energía en el suelo con el color característico del operador
-    const glowColor = p.color || '#00f0ff';
     ctx.beginPath();
     ctx.ellipse(0, 12, 16, 7, 0, 0, Math.PI * 2);
     ctx.fillStyle = glowColor;
@@ -1954,13 +2017,13 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     ctx.shadowBlur = 0;
     ctx.globalAlpha = p.dead ? 0.3 : 1.0;
 
-    // Dibujar sprite del operador
+    // Dibujar sprite del operador centrado en los pies con alta resolución
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       ctx.save();
       ctx.rotate(tilt);
-      const spriteW = 32;
+      const spriteW = 34;
       const spriteH = 46;
-      ctx.drawImage(sprite, -spriteW / 2, -28 + bob, spriteW, spriteH);
+      ctx.drawImage(sprite, -spriteW / 2, -32 + bob, spriteW, spriteH);
       ctx.restore();
     } else {
       // Fallback a indicador geométrico

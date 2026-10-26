@@ -70,4 +70,24 @@ test.describe('Flujo E2E 5: Selección de Especialistas, Biomas de Mapas, Radar 
     await page.click('#btn-exit-match');
     await expect(page.locator('#view-lobby')).toHaveClass(/active/);
   });
+
+  test('muestra el roster completo de 8 especialistas y permite seleccionar a Víbora Neón', async ({ page }) => {
+    await page.goto('/');
+    await page.click('#btn-quick-join');
+    await expect(page.locator('#view-room-waiting')).toHaveClass(/active/, { timeout: 8_000 });
+
+    // Verificar que se encuentran disponibles los 8 especialistas
+    const cards = page.locator('#character-cards-grid .character-card');
+    await expect(cards).toHaveCount(8);
+
+    // Seleccionar Víbora Neón (lime)
+    const viperCard = page.locator('.character-card[data-character="viper"]');
+    await expect(viperCard).toBeVisible();
+    await viperCard.click();
+    await expect(viperCard).toHaveClass(/active/);
+
+    // Abandonar sala de espera limpiamente
+    await page.click('#btn-leave-room');
+    await expect(page.locator('#view-lobby')).toHaveClass(/active/);
+  });
 });
