@@ -1893,32 +1893,22 @@ function resolveDirectionFromAngle(deg, lastHoriz = 'right') {
   //  -90° = arriba puro (back)
   //  ±180° = izquierda pura
 
-  // Hacia abajo (front): entre 65° y 115°
+  // Hacia abajo puro (front / S): entre 65° y 115°
   if (deg >= 65 && deg <= 115) {
     return 'front';
   }
 
-  // Hacia arriba puro (back / espaldas): entre -115° y -65°
+  // Hacia arriba puro (back / W): entre -115° y -65°
   if (deg >= -115 && deg <= -65) {
-    return lastHoriz === 'left' ? 'up_left' : 'up_right';
+    return 'back';
   }
 
-  // Diagonal arriba-izquierda (W+A, -135°): entre -160° y -115°
-  if (deg < -115 && deg >= -160) {
-    return 'up_left';
-  }
-
-  // Diagonal arriba-derecha (W+D, -45°): entre -65° y -20°
-  if (deg > -65 && deg <= -20) {
-    return 'up_right';
-  }
-
-  // Derecha pura y diagonal abajo-derecha (S+D, +45°): entre -20° y 65°
-  if (deg > -20 && deg < 65) {
+  // Derecha pura y todas las diagonales hacia la derecha (D, S+D a 45°, W+D a -45°): entre -65° y 65°
+  if (deg > -65 && deg < 65) {
     return 'right';
   }
 
-  // Izquierda pura y diagonal abajo-izquierda (S+A, +135°): deg >= 115 o deg < -160
+  // Izquierda pura y todas las diagonales hacia la izquierda (A, S+A a 135°, W+A a -135°): deg > 115 o deg < -115
   return 'left';
 }
 
@@ -1952,14 +1942,25 @@ function drawPlayers(players, renderTime, dt = 0.016) {
 
     let isMoving = false;
     let moveDeg = null;
+    let dir = orient.lastDir;
 
     if (p.id === state.myPlayerId) {
       const input = readMovementInput();
       if (Math.hypot(input.x, input.y) > 0.08) {
         isMoving = true;
-        moveDeg = (Math.atan2(input.y, input.x) * 180) / Math.PI;
-        if (input.x > 0.05) orient.lastHoriz = 'right';
-        else if (input.x < -0.05) orient.lastHoriz = 'left';
+        // Diagonales fluidas: en W+D y S+D se corre hacia la derecha; en W+A y S+A hacia la izquierda
+        if (input.x > 0.05) {
+          orient.lastHoriz = 'right';
+          dir = 'right';
+        } else if (input.x < -0.05) {
+          orient.lastHoriz = 'left';
+          dir = 'left';
+        } else if (input.y > 0.05) {
+          dir = 'front';
+        } else if (input.y < -0.05) {
+          dir = 'back';
+        }
+        orient.lastDir = dir;
       }
     }
 
@@ -1970,19 +1971,20 @@ function drawPlayers(players, renderTime, dt = 0.016) {
         moveDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
         if (dx > 0.04) orient.lastHoriz = 'right';
         else if (dx < -0.04) orient.lastHoriz = 'left';
+        dir = resolveDirectionFromAngle(moveDeg, orient.lastHoriz);
+        orient.lastDir = dir;
       }
     }
 
     if (isMoving) {
       orient.walkTime += dt;
-      orient.lastDir = resolveDirectionFromAngle(moveDeg, orient.lastHoriz);
     } else if (p.id === state.myPlayerId) {
       // En reposo, orientarse suavemente hacia la mira
       const aimDeg = (state.aimAngle * 180) / Math.PI;
       orient.lastDir = resolveDirectionFromAngle(aimDeg, orient.lastHoriz);
+      dir = orient.lastDir;
     }
 
-    const dir = orient.lastDir;
     playerOrientations.set(p.id, orient);
 
     if (p.id === state.myPlayerId) {
@@ -1997,24 +1999,33 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     if (spriteSet) {
       if (isMoving) {
         if (dir === 'right' || dir === 'left') {
-          // Ciclo de carrera de 4 fotogramas sincronizado a ~11 FPS
+          // Ciclo de carrera de 4 fotogramas sincronizado a ~11 FPS (usado para lateral y diagonales W+D, W+A, S+D, S+A)
           const frameIdx = Math.floor((orient.walkTime * 11) % 4);
           const list = spriteSet[dir] || [];
           sprite = list[frameIdx] || list[0];
-        } else if (dir === 'up_left' || dir === 'up_right') {
-          // Ciclo diagonal dorsal de 2 fotogramas sincronizados (ambos en la misma dirección)
+        } else if (dir === 'front') {
+          // Ciclo de marcha frontal de 2 fotogramas
           const frameIdx = Math.floor((orient.walkTime * 8) % 2);
-          const list = spriteSet[dir] || spriteSet.back || [];
+          const list = spriteSet.front || [];
           sprite = list[frameIdx] || list[0];
         } else {
-          // Ciclo de marcha frontal (front) o espalda (back)
+          // Ciclo dorsal puro (back / W): seleccionar variante según orientación horizontal previa
+          const list = orient.lastHoriz === 'right'
+            ? (spriteSet.up_right || spriteSet.back)
+            : (spriteSet.up_left || spriteSet.back);
           const frameIdx = Math.floor((orient.walkTime * 8) % 2);
-          const list = spriteSet[dir] || spriteSet.front || [];
           sprite = list[frameIdx] || list[0];
         }
       } else {
         // En reposo (idle): postura base limpia
-        const dirList = spriteSet[dir] || spriteSet.front;
+        let dirList;
+        if (dir === 'back') {
+          dirList = orient.lastHoriz === 'right'
+            ? (spriteSet.up_right || spriteSet.back)
+            : (spriteSet.up_left || spriteSet.back);
+        } else {
+          dirList = spriteSet[dir] || spriteSet.front;
+        }
         sprite = Array.isArray(dirList) ? dirList[0] : dirList;
       }
     }
@@ -2026,7 +2037,7 @@ function drawPlayers(players, renderTime, dt = 0.016) {
     const walkBob = isMoving ? Math.sin(orient.walkTime * 15) * 1.6 : 0;
     const bob = walkBob + idleBreathe;
     const targetTilt = isMoving
-      ? (dir === 'left' || dir === 'up_left' ? -0.05 : dir === 'right' || dir === 'up_right' ? 0.05 : 0)
+      ? (dir === 'left' ? -0.05 : dir === 'right' ? 0.05 : 0)
       : 0;
     orient.tilt = (orient.tilt || 0) * 0.82 + targetTilt * 0.18;
     const tilt = orient.tilt;
