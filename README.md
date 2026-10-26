@@ -13,9 +13,9 @@
 | Módulo / Componente | Peso | Criterio de Aprobación | Métrica de Validación | Estado |
 | :--- | :---: | :--- | :--- | :---: |
 | **1. Arquitectura de Red & Sockets** | **25%** | Server-Authoritative con WebSockets activos | Latencia RTT ping/pong **< 100 ms** medible en HUD | ✅ **Cumplido** |
-| **2. Motor Canvas 2D & Controles** | **25%** | Bucle desacoplado con delta time, soporte PC / Móvil | **60 FPS** estables, D-Pad/Joystick táctil en móvil | ✅ **Cumplido** |
+| **2. Motor Canvas 2D & Controles** | **25%** | Bucle desacoplado con delta time, soporte PC / Móvil | **60 FPS** estables, doble joystick táctil (movimiento + apuntado) | ✅ **Cumplido** |
 | **3. Endpoints de Prueba & Telemetría** | **20%** | Endpoints `/api/test/*` expuestos y auditables | HTTP 200 en **< 200 ms** (Win Rate, KDR, Seed 100-1000) | ✅ **Cumplido** |
-| **4. Pruebas Automatizadas & CI/CD** | **15%** | Tests Unitarios + 3 Flujos E2E + GitHub Actions | 19 Unit Tests (Vitest) + 4 E2E (Playwright) en verde | ✅ **Cumplido** |
+| **4. Pruebas Automatizadas & CI/CD** | **15%** | Tests Unitarios + 3 Flujos E2E + GitHub Actions | 19 Unit Tests (Vitest) + 6 E2E (Playwright, incluye flujo móvil y ciclo de sala) en verde | ✅ **Cumplido** |
 | **5. Despliegue en Producción** | **15%** | Compatible con Render, Railway, Vercel | Archivos `render.yaml`, `Procfile` y `Dockerfile` listos | ✅ **Cumplido** |
 
 ---
@@ -45,7 +45,7 @@
                       │                                               │
                       │  ┌─────────────────┐    ┌──────────────────┐  │
                       │  │ Interpolation   │    │ Canvas 2D Render │  │
-                      │  │ Buffer 100ms    │───▶│ 60 FPS DeltaTime │  │
+                      │  │ Buffer 80ms     │───▶│ 60 FPS DeltaTime │  │
                       │  └─────────────────┘    └──────────────────┘  │
                       │                                   │           │
                       │  ┌─────────────────┐              ▼           │
@@ -60,10 +60,12 @@
 - La simulación física, resolución de colisiones en ejes independientes, generación de proyectiles, inventario y fórmulas de daño se ejecutan estrictamente en el backend a **30 ticks/segundo**.
 - Los inputs recibidos del cliente son validados mediante esquemas **Zod** y acotados con `clampInputVector` para neutralizar ataques de manipulación de velocidad (*speed hacks*).
 - El cliente almacena los snapshots autoritativos en un búfer circular de interpolación (`InterpolationBuffer`) y renderiza a **60 FPS** continuos desacoplados del monitor mediante tiempo delta (`dt`).
+- El movimiento del jugador local usa **predicción de cliente con reconciliación**: se simula al instante con la física compartida y el servidor corrige mediante `ackSeq` en cada snapshot. Los demás jugadores se interpolan con 80 ms de retardo usando timestamps locales de recepción.
 
 ### 2. Controles Adaptativos (Regla de Oro PC + Móvil)
-- **Dispositivos Táctiles**: Instancia automáticamente un **Joystick virtual / D-Pad** en la esquina inferior izquierda y un botón de acción táctil en la derecha.
+- **Dispositivos Táctiles**: Instancia un **joystick izquierdo de movimiento** y un **joystick derecho de apuntado/disparo**, además de un botón de disparo alternativo. Usa Pointer Events con seguimiento independiente por dedo y `touch-action: none`.
 - **Entorno de Escritorio (PC)**: Oculta los controles táctiles para maximizar el área visible y otorga prioridad total a los eventos de teclado (`WASD` / Flechas) y ratón.
+- **Pantalla completa en partida**: en móvil se oculta la cabecera y el canvas ocupa `100dvh`, respetando safe-areas (notch/barras del sistema).
 
 ---
 
@@ -140,10 +142,11 @@ Verifica:
 ```bash
 npm run test:e2e
 ```
-Cubre los 3 flujos obligatorios:
+Cubre los 3 flujos obligatorios más la regresión móvil:
 1. **Flujo de Autenticación**: Intento de acceso con credenciales erróneas, validación de credenciales válidas y protección de salas privadas con contraseña.
 2. **Flujo de Lobbies**: Conexión activa de sockets, creación interactiva de salas y asignación del estado *"Listo"*.
 3. **Flujo de Canvas**: Inicio en el lienzo 2D, inyección de pulsaciones de teclado e inspección de cambio de coordenadas del jugador en el DOM (`data-player-x`, `data-player-y`).
+4. **Flujo Móvil**: Proyecto Playwright *Pixel 5* que valida canvas a pantalla completa, ausencia de scroll, visibilidad de ambos joysticks, movimiento táctil y ángulo de apuntado.
 
 ### Ejecutar Toda la Suite
 ```bash

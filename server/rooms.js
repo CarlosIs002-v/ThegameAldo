@@ -82,6 +82,11 @@ class RoomManager {
       throw new Error('La sala está llena');
     }
 
+    // Un socket solo puede estar en una sala a la vez.
+    if (this.clientToRoom.has(socket)) {
+      this.leaveRoom(socket);
+    }
+
     const playerId = `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const clientData = {
       id: playerId,
@@ -122,6 +127,8 @@ class RoomManager {
     if (room.clients.size === 0) {
       room.match.stop();
       room.status = 'waiting';
+      // Reiniciar la simulación para que la siguiente partida arranque limpia.
+      room.match = new GameMatch(room);
     } else {
       this.broadcastLobbyState(room);
     }

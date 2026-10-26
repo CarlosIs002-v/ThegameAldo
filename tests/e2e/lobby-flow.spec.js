@@ -39,4 +39,39 @@ test.describe('Flujo E2E 2: Creación de Sala, Asignación de Estado "Listo" y S
     await expect(readyBadge).toHaveClass(/is-ready/);
     await expect(readyBadge).toHaveText('LISTO');
   });
+
+  test('abandonar la partida libera al jugador y la sala en el servidor', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/');
+
+    await page.click('#btn-create-room-modal');
+    const testRoomName = `Sector Salida ${Date.now() % 10000}`;
+    await page.fill('#input-room-name', testRoomName);
+    await page.click('#btn-submit-create-room');
+
+    await expect(page.locator('#view-room-waiting')).toHaveClass(/active/, { timeout: 8_000 });
+    const roomId = (await page.locator('#current-room-id').textContent())
+      .replace('ID:', '')
+      .trim();
+
+    await page.click('#btn-toggle-ready');
+    await expect(page.locator('#view-game')).toHaveClass(/active/, { timeout: 8_000 });
+
+    await page.click('#btn-exit-match');
+    await expect(page.locator('#view-lobby')).toHaveClass(/active/);
+
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get('/api/rooms');
+          const body = await res.json();
+          const room = (body.rooms || []).find((r) => r.id === roomId);
+          return room ? room.playerCount : -1;
+        },
+        { timeout: 8_000 }
+      )
+      .toBe(0);
+  });
 });

@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#07090e">
   <title>CyberGrid: Breach & Sync — Multijugador Server-Authoritative</title>
   <meta name="description" content="Videojuego multijugador Canvas 2D en tiempo real con arquitectura Server-Authoritative y WebSockets activos.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -129,21 +130,37 @@
         <canvas id="game-canvas" width="1280" height="720"></canvas>
 
         <!-- Controles Táctiles Adaptativos para Móvil (Ocultos automáticamente en PC) -->
-        <div id="touch-controls" class="touch-controls-layer" style="display: none;">
-          <!-- D-Pad / Joystick Virtual Izquierdo -->
+        <div id="touch-controls" class="touch-controls-layer">
+          <!-- Joystick Virtual Izquierdo: Movimiento -->
           <div id="touch-joystick" class="touch-joystick-zone">
             <div class="joystick-base">
               <div id="joystick-knob" class="joystick-knob"></div>
             </div>
-            <span class="touch-hint">D-PAD MOVIMIENTO</span>
+            <span class="touch-hint">MOVIMIENTO</span>
           </div>
 
-          <!-- Botón de Acción Táctil Derecho -->
+          <!-- Joystick Virtual Derecho: Apuntado y Disparo -->
+          <div id="touch-aim" class="touch-aim-zone">
+            <div class="joystick-base aim-base">
+              <div id="aim-knob" class="joystick-knob aim-knob"></div>
+            </div>
+            <span class="touch-hint">APUNTAR / DISPARAR</span>
+          </div>
+
+          <!-- Botón de Disparo Alternativo -->
           <div id="touch-action" class="touch-action-zone">
             <button id="btn-touch-fire" class="touch-fire-btn" aria-label="Disparar">
-              <span>PULSE</span>
+              <span>FIRE</span>
             </button>
-            <span class="touch-hint">DISPARO</span>
+          </div>
+        </div>
+
+        <!-- Overlay para forzar rotación a modo horizontal en móvil -->
+        <div id="rotate-overlay" class="rotate-overlay">
+          <div class="rotate-overlay-content">
+            <div class="rotate-icon">↻</div>
+            <div class="rotate-text">Gira tu dispositivo</div>
+            <div class="rotate-subtext">Para jugar en modo horizontal</div>
           </div>
         </div>
       </div>

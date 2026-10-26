@@ -22,8 +22,14 @@ export const SERVER_TICK_RATE = 30;
 /** FPS objetivo del cliente (bucle bloqueado a 60 FPS vía delta time). */
 export const TARGET_FPS = 60;
 
-/** Retardo de interpolación del cliente en ms (≈ 3 ticks de servidor). */
-export const INTERPOLATION_DELAY_MS = 100;
+/** Retardo de interpolación de entidades remotas en ms (≈ 2-3 ticks de servidor). */
+export const INTERPOLATION_DELAY_MS = 80;
+
+/** Frecuencia de envío de inputs del cliente. */
+export const CLIENT_INPUT_RATE = 60;
+
+/** Umbral de corrección brusca de la predicción local (px). */
+export const PREDICTION_SNAP_DISTANCE = 28;
 
 export const PLAYER = Object.freeze({
   radius: 12,

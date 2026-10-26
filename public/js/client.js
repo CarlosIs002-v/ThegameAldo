@@ -1,10 +1,18 @@
 import { InterpolationBuffer } from '../shared/interpolation.js';
-import { INTERPOLATION_DELAY_MS, TILE_SIZE, TILE } from '../shared/constants.js';
+import {
+  INTERPOLATION_DELAY_MS,
+  TILE_SIZE,
+  TILE,
+  PLAYER,
+  CLIENT_INPUT_RATE,
+  PREDICTION_SNAP_DISTANCE,
+} from '../shared/constants.js';
+import { stepMovement } from '../shared/physics.js';
 
 /**
  * Cliente de CyberGrid: Breach & Sync.
- * Canvas 2D desacoplado con delta time, interpolación a 60 FPS,
- * WebSockets Server-Authoritative y controles adaptativos PC / Móvil.
+ * Canvas 2D desacoplado con delta time, predicción local, reconciliación
+ * server-authoritative, WebSockets y controles adaptativos PC / Móvil.
  */
 
 // --- Estado Global del Cliente ---
@@ -20,35 +28,59 @@ const state = {
   fps: 60,
   lastFrameTime: performance.now(),
   inputSeq: 1,
+  inputAccumulator: 0,
 
   // Interpolación de jugadores por ID -> InterpolationBuffer
   buffers: new Map(),
+  projectileBuffers: new Map(), // id -> { buffer, lastSeen, crit }
   currentSnapshot: null,
   lastSnapshotRecvTime: 0,
+
+  // Predicción local (Server-Authoritative + Client Prediction)
+  predicted: { x: 0, y: 0, initialized: false },
+  pendingInputs: [],
+  isLocalDead: false,
 
   // Entradas del jugador local
   keys: { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false },
   mouse: { x: 0, y: 0, shooting: false },
   touchVector: { x: 0, y: 0 },
   touchShooting: false,
+  touchAim: { active: false, magnitude: 0, x: 0, y: 0, angle: 0, used: false },
+  fireRequestUntil: 0,
+  aimAngle: 0,
+  isTouch: false,
+
+  // Viewport lógico (CSS px) y escala real del canvas
+  viewport: { width: 1280, height: 720, dpr: 1 },
+  viewRect: null,
 };
 
-// --- Sprites del Soldado Azul (operador1.jpg) ---
+// --- Sprites del Soldado Azul (operador1) ---
 const soldierSprites = {
   front: new Image(),
   right: new Image(),
   left: new Image(),
   loaded: false,
 };
+let spritesReady = 0;
+const markSpriteLoaded = () => {
+  spritesReady++;
+  soldierSprites.loaded = spritesReady >= 3;
+};
+soldierSprites.front.onload = markSpriteLoaded;
+soldierSprites.right.onload = markSpriteLoaded;
+soldierSprites.left.onload = markSpriteLoaded;
 soldierSprites.front.src = '/img/soldier_front.png';
 soldierSprites.right.src = '/img/soldier_right.png';
 soldierSprites.left.src = '/img/soldier_left.png';
-soldierSprites.front.onload = () => {
-  soldierSprites.loaded = true;
-};
 
-// Historial para determinar la orientación del soldado
+// Historial para determinar la orientación de jugadores remotos
 const playerPrevPositions = new Map();
+
+// Caché del mapa pre-renderizado
+let mapCache = null;
+let resizeFrame = 0;
 
 // --- Elementos DOM ---
 const elements = {
@@ -93,6 +125,8 @@ const elements = {
   touchControls: document.getElementById('touch-controls'),
   touchJoystickZone: document.getElementById('touch-joystick'),
   joystickKnob: document.getElementById('joystick-knob'),
+  touchAimZone: document.getElementById('touch-aim'),
+  aimKnob: document.getElementById('aim-knob'),
   btnTouchFire: document.getElementById('btn-touch-fire'),
 
   // Modales
@@ -117,6 +151,7 @@ const elements = {
 };
 
 const ctx = elements.canvas.getContext('2d');
+const touchResetters = [];
 
 // --- Inicialización ---
 export function init() {
@@ -160,8 +195,13 @@ function setupNetwork() {
   });
 
   state.socket.addEventListener('close', () => {
-    elements.pingDisplay.textContent = 'DISCONNECTED';
+    elements.pingDisplay.textContent = 'OFFLINE';
     elements.pingDisplay.className = 'stat-val';
+    resetInputs();
+    clearGameState();
+    if (elements.viewGame.classList.contains('active')) {
+      showView('view-lobby');
+    }
     setTimeout(setupNetwork, 2000);
   });
 }
@@ -183,9 +223,11 @@ function handleServerMessage(msg) {
     }
 
     case 'joined': {
+      clearGameState();
       state.currentRoomId = msg.roomId;
       state.myPlayerId = msg.playerId;
       state.map = msg.map;
+      mapCache = null;
       showView('view-room-waiting');
       elements.currentRoomId.textContent = `ID: ${msg.roomId}`;
       break;
@@ -193,7 +235,7 @@ function handleServerMessage(msg) {
 
     case 'lobby_update': {
       renderLobbyRoster(msg);
-      if (msg.status === 'in-game') {
+      if (msg.status === 'in-game' && !elements.viewGame.classList.contains('active')) {
         showView('view-game');
       }
       break;
@@ -207,30 +249,107 @@ function handleServerMessage(msg) {
     }
 
     case 'snapshot': {
-      state.lastSnapshotRecvTime = performance.now();
-      state.currentSnapshot = msg;
-
-      // Almacenar en búferes de interpolación
-      for (const p of msg.players) {
-        let buf = state.buffers.get(p.id);
-        if (!buf) {
-          buf = new InterpolationBuffer(30);
-          state.buffers.set(p.id, buf);
-        }
-        buf.push({ t: msg.t, x: p.x, y: p.y });
-
-        // Si es el jugador local, actualizar HUD y telemetría DOM
-        if (p.id === state.myPlayerId) {
-          updateLocalHUD(p);
-        }
-      }
+      handleSnapshot(msg);
       break;
     }
+
+    case 'left_room':
+      break;
 
     case 'error': {
       alert(`[Error]: ${msg.message}`);
       break;
     }
+  }
+}
+
+function handleSnapshot(msg) {
+  const receiveTime = performance.now();
+  state.lastSnapshotRecvTime = receiveTime;
+  state.currentSnapshot = msg;
+
+  for (const p of msg.players) {
+    let buf = state.buffers.get(p.id);
+    if (!buf) {
+      buf = new InterpolationBuffer(30);
+      state.buffers.set(p.id, buf);
+    }
+
+    // Los timestamps del búfer son de recepción local: elimina el sesgo
+    // entre el reloj del servidor y el del dispositivo móvil.
+    buf.push({ t: receiveTime, x: p.x, y: p.y });
+
+    if (p.id === state.myPlayerId) {
+      reconcileLocalPlayer(p);
+      updateLocalHUD(p);
+    }
+  }
+
+  const activePlayerIds = new Set(msg.players.map((p) => p.id));
+  for (const id of state.buffers.keys()) {
+    if (!activePlayerIds.has(id)) state.buffers.delete(id);
+  }
+
+  for (const proj of msg.projectiles || []) {
+    let entry = state.projectileBuffers.get(proj.id);
+    if (!entry) {
+      entry = { buffer: new InterpolationBuffer(20), lastSeen: receiveTime, crit: proj.crit };
+      state.projectileBuffers.set(proj.id, entry);
+    }
+    entry.buffer.push({ t: receiveTime, x: proj.x, y: proj.y });
+    entry.lastSeen = receiveTime;
+    entry.crit = proj.crit;
+  }
+
+  for (const [id, entry] of state.projectileBuffers) {
+    if (receiveTime - entry.lastSeen > 500) state.projectileBuffers.delete(id);
+  }
+}
+
+function reconcileLocalPlayer(p) {
+  if (p.dead) {
+    state.isLocalDead = true;
+    state.pendingInputs = [];
+    state.predicted = { x: p.x, y: p.y, initialized: true };
+    return;
+  }
+
+  state.isLocalDead = false;
+
+  const ackSeq = Number.isFinite(p.ackSeq) ? p.ackSeq : 0;
+  if (state.pendingInputs.length > 0) {
+    state.pendingInputs = state.pendingInputs.filter((input) => input.seq > ackSeq);
+  }
+
+  // Re-simular los inputs que el servidor aún no ha confirmado.
+  let x = p.x;
+  let y = p.y;
+  for (const input of state.pendingInputs) {
+    const next = stepMovement(
+      state.map,
+      { x, y },
+      { x: input.x, y: input.y },
+      PLAYER.speed,
+      input.dt,
+      PLAYER.radius
+    );
+    x = next.x;
+    y = next.y;
+  }
+
+  if (!state.predicted.initialized) {
+    state.predicted = { x, y, initialized: true };
+    return;
+  }
+
+  const error = Math.hypot(x - state.predicted.x, y - state.predicted.y);
+  if (error > PREDICTION_SNAP_DISTANCE) {
+    // Corrección fuerte: reaparición, choque o pérdida de paquetes.
+    state.predicted = { x, y, initialized: true };
+  } else {
+    // Corrección suave para absorber pequeñas diferencias de dt.
+    state.predicted.x += (x - state.predicted.x) * 0.35;
+    state.predicted.y += (y - state.predicted.y) * 0.35;
   }
 }
 
@@ -242,11 +361,12 @@ function updateLocalHUD(p) {
   elements.hudShards.textContent = p.shards;
   elements.hudKills.textContent = p.kills;
 
-  // Crucial: Actualizar coordenadas en el DOM para el Test E2E de Canvas
-  elements.playerCoordinates.setAttribute('data-player-x', String(p.x));
-  elements.playerCoordinates.setAttribute('data-player-y', String(p.y));
-  elements.telemetryX.textContent = Math.round(p.x);
-  elements.telemetryY.textContent = Math.round(p.y);
+  const pos = state.predicted.initialized ? state.predicted : p;
+  elements.playerCoordinates.setAttribute('data-player-x', String(pos.x));
+  elements.playerCoordinates.setAttribute('data-player-y', String(pos.y));
+  elements.playerCoordinates.setAttribute('data-aim-angle', state.aimAngle.toFixed(3));
+  elements.telemetryX.textContent = Math.round(pos.x);
+  elements.telemetryY.textContent = Math.round(pos.y);
 }
 
 // --- Cambio de Vistas ---
@@ -255,25 +375,63 @@ function showView(viewId) {
   const target = document.getElementById(viewId);
   if (target) target.classList.add('active');
 
-  // Si entramos al canvas, disparar un resize
+  document.body.classList.toggle('in-game', viewId === 'view-game');
+  resetInputs();
+
   if (viewId === 'view-game') {
-    resizeCanvas();
+    scheduleCanvasResize();
+    lockToLandscape();
+  } else {
+    unlockOrientation();
+  }
+}
+
+function lockToLandscape() {
+  try {
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+      screen.orientation.lock('landscape').catch(() => {
+        // Ignorar si el navegador no permite bloquear orientación
+      });
+    }
+  } catch {
+    // Ignorar errores de bloqueo de orientación
+  }
+}
+
+function unlockOrientation() {
+  try {
+    if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+      screen.orientation.unlock();
+    }
+  } catch {
+    // Ignorar errores
   }
 }
 
 // --- Controles de Entrada (PC y Móvil) ---
+const KEY_BY_CODE = {
+  KeyW: 'w',
+  KeyA: 'a',
+  KeyS: 's',
+  KeyD: 'd',
+  ArrowUp: 'ArrowUp',
+  ArrowLeft: 'ArrowLeft',
+  ArrowDown: 'ArrowDown',
+  ArrowRight: 'ArrowRight',
+};
+
 function setupInputListeners() {
   window.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT') return;
-    if (state.keys.hasOwnProperty(e.key) || state.keys.hasOwnProperty(e.code)) {
-      state.keys[e.key] = true;
-    }
+    if (isEditableTarget(e.target)) return;
+    const key = KEY_BY_CODE[e.code] || (Object.prototype.hasOwnProperty.call(state.keys, e.key) ? e.key : null);
+    if (!key) return;
+    state.keys[key] = true;
+    if (key.startsWith('Arrow')) e.preventDefault();
   });
 
   window.addEventListener('keyup', (e) => {
-    if (state.keys.hasOwnProperty(e.key)) {
-      state.keys[e.key] = false;
-    }
+    const key = KEY_BY_CODE[e.code] || (Object.prototype.hasOwnProperty.call(state.keys, e.key) ? e.key : null);
+    if (key) state.keys[key] = false;
   });
 
   elements.canvas.addEventListener('mousemove', (e) => {
@@ -283,99 +441,181 @@ function setupInputListeners() {
   });
 
   elements.canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) state.mouse.shooting = true;
+    if (e.button === 0) {
+      state.mouse.shooting = true;
+      requestFire();
+      e.preventDefault();
+    }
   });
 
   window.addEventListener('mouseup', (e) => {
     if (e.button === 0) state.mouse.shooting = false;
   });
 
-  // Envío periódico de inputs al servidor a 30Hz
-  setInterval(sendInputToServer, 33);
+  elements.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('blur', resetInputs);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) resetInputs();
+  });
+}
+
+function isEditableTarget(target) {
+  if (!target) return false;
+  return (
+    target.tagName === 'INPUT' ||
+    target.tagName === 'SELECT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.isContentEditable
+  );
 }
 
 function setupTouchControls() {
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  state.isTouch =
+    'ontouchstart' in window ||
+    navigator.maxTouchPoints > 0 ||
+    window.matchMedia?.('(pointer: coarse)').matches;
 
-  if (isTouchDevice) {
-    // Regla de Oro: En dispositivos táctiles instanciar D-Pad y botón de acción
-    elements.touchControls.style.display = 'block';
+  document.body.classList.toggle('is-touch', state.isTouch);
+  if (!state.isTouch) return;
 
-    let joystickActive = false;
-    let originX = 0;
-    let originY = 0;
-    const maxRadius = 45;
-
-    elements.touchJoystickZone.addEventListener('touchstart', (e) => {
-      joystickActive = true;
-      const touch = e.touches[0];
-      const rect = elements.touchJoystickZone.getBoundingClientRect();
-      originX = rect.left + rect.width / 2;
-      originY = rect.top + rect.height / 2;
-      updateJoystick(touch.clientX, touch.clientY);
-    });
-
-    window.addEventListener('touchmove', (e) => {
-      if (!joystickActive) return;
-      for (let i = 0; i < e.touches.length; i++) {
-        const touch = e.touches[i];
-        if (
-          Math.hypot(touch.clientX - originX, touch.clientY - originY) <
-          maxRadius * 2
-        ) {
-          updateJoystick(touch.clientX, touch.clientY);
-          break;
-        }
-      }
-    });
-
-    const resetJoystick = () => {
-      joystickActive = false;
+  const resetMove = setupJoystick(
+    elements.touchJoystickZone,
+    elements.joystickKnob,
+    (x, y) => {
+      state.touchVector = { x, y };
+    },
+    () => {
       state.touchVector = { x: 0, y: 0 };
-      elements.joystickKnob.style.transform = 'translate(0px, 0px)';
-    };
-
-    window.addEventListener('touchend', resetJoystick);
-    window.addEventListener('touchcancel', resetJoystick);
-
-    function updateJoystick(cx, cy) {
-      let dx = cx - originX;
-      let dy = cy - originY;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist > maxRadius) {
-        dx = (dx / dist) * maxRadius;
-        dy = (dy / dist) * maxRadius;
-      }
-
-      elements.joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-      state.touchVector = {
-        x: dx / maxRadius,
-        y: dy / maxRadius,
-      };
     }
+  );
+  touchResetters.push(resetMove);
 
-    // Botón de acción táctil
-    elements.btnTouchFire.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      state.touchShooting = true;
-    });
+  const resetAim = setupJoystick(
+    elements.touchAimZone,
+    elements.aimKnob,
+    (x, y, magnitude) => {
+      state.touchAim.active = magnitude > 0.08;
+      state.touchAim.magnitude = magnitude;
+      state.touchAim.x = x;
+      state.touchAim.y = y;
+      if (Math.hypot(x, y) > 0.08) {
+        state.touchAim.angle = Math.atan2(y, x);
+        state.touchAim.used = true;
+      }
+    },
+    () => {
+      state.touchAim.active = false;
+      state.touchAim.magnitude = 0;
+    }
+  );
+  touchResetters.push(resetAim);
 
-    elements.btnTouchFire.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      state.touchShooting = false;
-    });
-  } else {
-    // En PC se ocultan automáticamente para dar prioridad a keydown/keyup
-    elements.touchControls.style.display = 'none';
-  }
+  const releaseFire = () => {
+    state.touchShooting = false;
+  };
+
+  elements.btnTouchFire.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try {
+      elements.btnTouchFire.setPointerCapture(e.pointerId);
+    } catch {
+      // Puntero sintético sin captura disponible.
+    }
+    state.touchShooting = true;
+    requestFire();
+  });
+  elements.btnTouchFire.addEventListener('pointerup', (e) => {
+    e.preventDefault();
+    releaseFire();
+  });
+  elements.btnTouchFire.addEventListener('pointercancel', releaseFire);
+  elements.btnTouchFire.addEventListener('lostpointercapture', releaseFire);
+  elements.touchControls.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-function sendInputToServer() {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  if (!state.currentRoomId || !state.myPlayerId) return;
+function setupJoystick(zone, knob, onMove, onEnd) {
+  let pointerId = null;
+  let originX = 0;
+  let originY = 0;
+  let maxRadius = 32;
 
-  // Combinar teclado y joystick táctil
+  const update = (e) => {
+    if (pointerId === null || e.pointerId !== pointerId) return;
+
+    let dx = e.clientX - originX;
+    let dy = e.clientY - originY;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > maxRadius) {
+      dx = (dx / dist) * maxRadius;
+      dy = (dy / dist) * maxRadius;
+    }
+
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    onMove(dx / maxRadius, dy / maxRadius, Math.min(1, dist / maxRadius));
+    e.preventDefault();
+  };
+
+  const end = (e) => {
+    if (pointerId === null) return;
+    if (e && typeof e.pointerId === 'number' && e.pointerId !== pointerId) return;
+    pointerId = null;
+    knob.style.transform = 'translate(0px, 0px)';
+    onEnd();
+  };
+
+  zone.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (pointerId !== null) return;
+      pointerId = e.pointerId;
+      try {
+        zone.setPointerCapture(pointerId);
+      } catch {
+        // Puntero sintético sin captura disponible.
+      }
+      const base = zone.querySelector('.joystick-base') || zone;
+      const baseRect = base.getBoundingClientRect();
+      const knobRect = knob.getBoundingClientRect();
+      originX = baseRect.left + baseRect.width / 2;
+      originY = baseRect.top + baseRect.height / 2;
+      maxRadius = Math.max(24, baseRect.width / 2 - knobRect.width / 2);
+      update(e);
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  zone.addEventListener('pointermove', update, { passive: false });
+  zone.addEventListener('pointerup', end);
+  zone.addEventListener('pointercancel', end);
+  zone.addEventListener('lostpointercapture', end);
+
+  return () => {
+    pointerId = null;
+    knob.style.transform = 'translate(0px, 0px)';
+    onEnd();
+  };
+}
+
+function requestFire() {
+  // Mantiene "shooting" activo al menos un tick del servidor (30 Hz)
+  // para que un toque rápido no se pierda entre snapshots.
+  state.fireRequestUntil = performance.now() + 120;
+}
+
+function resetInputs() {
+  for (const key of Object.keys(state.keys)) state.keys[key] = false;
+  state.mouse.shooting = false;
+  state.touchShooting = false;
+  state.touchVector = { x: 0, y: 0 };
+  state.touchAim.active = false;
+  state.touchAim.magnitude = 0;
+  state.fireRequestUntil = 0;
+  for (const reset of touchResetters) reset();
+}
+
+function readMovementInput() {
   let mx = 0;
   let my = 0;
 
@@ -389,34 +629,93 @@ function sendInputToServer() {
     my = state.touchVector.y;
   }
 
-  // Ángulo de puntería respecto al centro de pantalla
-  const cx = elements.canvas.width / 2;
-  const cy = elements.canvas.height / 2;
-  const aimAngle = Math.atan2(state.mouse.y - cy, state.mouse.x - cx);
+  return { x: mx, y: my };
+}
 
-  const shooting = state.mouse.shooting || state.touchShooting;
+function updateAimAngle() {
+  if (state.isTouch) {
+    if (state.touchAim.active && state.touchAim.used) {
+      state.aimAngle = state.touchAim.angle;
+    } else {
+      const movement = readMovementInput();
+      if (Math.hypot(movement.x, movement.y) > 0.1) {
+        state.aimAngle = Math.atan2(movement.y, movement.x);
+      }
+    }
+    return;
+  }
 
+  const cx = state.viewport.width / 2;
+  const cy = state.viewport.height / 2;
+  state.aimAngle = Math.atan2(state.mouse.y - cy, state.mouse.x - cx);
+}
+
+function isShooting() {
+  if (state.mouse.shooting || state.touchShooting) return true;
+  if (state.fireRequestUntil > performance.now()) return true;
+  return state.touchAim.active && state.touchAim.magnitude > 0.3;
+}
+
+function updateLocalPrediction(dt) {
+  if (!state.myPlayerId || !state.map) return;
+  if (!state.predicted.initialized || state.isLocalDead) return;
+
+  const input = readMovementInput();
+  const next = stepMovement(
+    state.map,
+    { x: state.predicted.x, y: state.predicted.y },
+    input,
+    PLAYER.speed,
+    dt,
+    PLAYER.radius
+  );
+  state.predicted.x = next.x;
+  state.predicted.y = next.y;
+}
+
+function sendInputs(dt) {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+  if (!state.currentRoomId || !state.myPlayerId) {
+    state.inputAccumulator = 0;
+    return;
+  }
+
+  const interval = 1 / CLIENT_INPUT_RATE;
+  state.inputAccumulator += dt;
+  if (state.inputAccumulator < interval) return;
+
+  const sendDt = Math.min(0.1, state.inputAccumulator);
+  state.inputAccumulator = 0;
+
+  const movement = readMovementInput();
   const payload = {
     seq: state.inputSeq++,
-    x: mx,
-    y: my,
-    aimAngle,
-    shooting,
+    x: movement.x,
+    y: movement.y,
+    aimAngle: state.aimAngle,
+    shooting: isShooting(),
     timestamp: Date.now(),
   };
+
+  state.pendingInputs.push({
+    seq: payload.seq,
+    x: payload.x,
+    y: payload.y,
+    dt: sendDt,
+  });
+  if (state.pendingInputs.length > 180) state.pendingInputs.shift();
 
   state.socket.send(JSON.stringify({ type: 'input', data: payload }));
 }
 
-// --- Bucle de Juego Canvas 2D (Bloqueado a 60 FPS con delta time) ---
+// --- Bucle de Juego Canvas 2D (60 FPS con delta time) ---
 let frameCount = 0;
 let lastFpsCheck = performance.now();
 
 function gameLoop(now) {
-  const dt = Math.min(0.1, (now - state.lastFrameTime) / 1000);
+  const dt = Math.min(0.1, Math.max(0, (now - state.lastFrameTime) / 1000));
   state.lastFrameTime = now;
 
-  // Medición de FPS
   frameCount++;
   if (now - lastFpsCheck >= 1000) {
     state.fps = frameCount;
@@ -425,31 +724,53 @@ function gameLoop(now) {
     lastFpsCheck = now;
   }
 
-  // Renderizado sólo si la vista de juego está activa
   if (elements.viewGame.classList.contains('active')) {
+    updateAimAngle();
+    updateLocalPrediction(dt);
+    sendInputs(dt);
     renderGame(now, dt);
+  } else {
+    state.inputAccumulator = 0;
   }
 
   requestAnimationFrame(gameLoop);
 }
 
 function renderGame(now, dt) {
-  ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+  const { width, height } = state.viewport;
+  ctx.clearRect(0, 0, width, height);
 
   if (!state.map) return;
 
-  // Cámara centrada en el jugador local
-  const renderTime = Date.now() - INTERPOLATION_DELAY_MS;
-  const myBuf = state.buffers.get(state.myPlayerId);
-  const myPos = myBuf ? myBuf.sample(renderTime) : { x: 400, y: 300 };
+  const renderTime = performance.now() - INTERPOLATION_DELAY_MS;
 
-  const camX = elements.canvas.width / 2 - (myPos?.x || 400);
-  const camY = elements.canvas.height / 2 - (myPos?.y || 300);
+  let myPos;
+  if (state.predicted.initialized && !state.isLocalDead) {
+    myPos = { x: state.predicted.x, y: state.predicted.y };
+  } else {
+    const myBuf = state.buffers.get(state.myPlayerId);
+    myPos = myBuf?.sample(renderTime);
+  }
+
+  if (!myPos) {
+    const spawn = state.map.spawns?.[0] || { x: 400, y: 300 };
+    myPos = { x: spawn.x, y: spawn.y };
+  }
+
+  const camX = width / 2 - myPos.x;
+  const camY = height / 2 - myPos.y;
+
+  state.viewRect = {
+    left: -camX,
+    top: -camY,
+    right: -camX + width,
+    bottom: -camY + height,
+  };
 
   ctx.save();
   ctx.translate(camX, camY);
 
-  // 1. Renderizar Mapa
+  // 1. Renderizar Mapa (cacheado)
   drawMap();
 
   // 2. Renderizar Pickups
@@ -459,10 +780,10 @@ function renderGame(now, dt) {
 
   // 3. Renderizar Proyectiles
   if (state.currentSnapshot?.projectiles) {
-    drawProjectiles(state.currentSnapshot.projectiles);
+    drawProjectiles(state.currentSnapshot.projectiles, renderTime);
   }
 
-  // 4. Renderizar Jugadores con Interpolación
+  // 4. Renderizar Jugadores con Interpolación / Predicción
   if (state.currentSnapshot?.players) {
     drawPlayers(state.currentSnapshot.players, renderTime);
   }
@@ -470,32 +791,63 @@ function renderGame(now, dt) {
   ctx.restore();
 }
 
-function drawMap() {
-  const map = state.map;
-  const ts = map.tileSize || TILE_SIZE;
+function isVisible(x, y, margin = 64) {
+  const r = state.viewRect;
+  if (!r) return true;
+  return x >= r.left - margin && x <= r.right + margin && y >= r.top - margin && y <= r.bottom + margin;
+}
 
-  for (let y = 0; y < map.height; y++) {
-    for (let x = 0; x < map.width; x++) {
-      const tile = map.tiles[y * map.width + x];
+function buildMapCache() {
+  if (!state.map) return;
+
+  const dpr = state.viewport.dpr || 1;
+  if (mapCache && mapCache.dpr === dpr) return;
+
+  const ts = state.map.tileSize || TILE_SIZE;
+  const width = state.map.width * ts;
+  const height = state.map.height * ts;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const c = canvas.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  for (let y = 0; y < state.map.height; y++) {
+    for (let x = 0; x < state.map.width; x++) {
+      const tile = state.map.tiles[y * state.map.width + x];
       const px = x * ts;
       const py = y * ts;
 
       if (tile === TILE.WALL) {
-        ctx.fillStyle = '#141c2b';
-        ctx.fillRect(px, py, ts, ts);
-        ctx.strokeStyle = '#00f0ff';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, ts - 1, ts - 1);
+        c.fillStyle = '#141c2b';
+        c.fillRect(px, py, ts, ts);
+        c.strokeStyle = '#00f0ff';
+        c.lineWidth = 1;
+        c.strokeRect(px + 0.5, py + 0.5, ts - 1, ts - 1);
       } else {
-        ctx.fillStyle = '#0a0d14';
-        ctx.fillRect(px, py, ts, ts);
+        c.fillStyle = '#0a0d14';
+        c.fillRect(px, py, ts, ts);
       }
     }
   }
+
+  mapCache = { canvas, dpr, width, height };
+}
+
+function drawMap() {
+  buildMapCache();
+  if (!mapCache) return;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mapCache.canvas, 0, 0, mapCache.width, mapCache.height);
+  ctx.imageSmoothingEnabled = true;
 }
 
 function drawPickups(pickups, now) {
   for (const item of pickups) {
+    if (!isVisible(item.x, item.y, 32)) continue;
+
     ctx.save();
     ctx.translate(item.x, item.y);
     const pulse = Math.sin(now * 0.006) * 2;
@@ -517,11 +869,15 @@ function drawPickups(pickups, now) {
   }
 }
 
-function drawProjectiles(projectiles) {
+function drawProjectiles(projectiles, renderTime) {
   for (const p of projectiles) {
+    const entry = state.projectileBuffers.get(p.id);
+    const pos = entry ? entry.buffer.sample(renderTime) : { x: p.x, y: p.y };
+    if (!pos || !isVisible(pos.x, pos.y, 24)) continue;
+
     ctx.save();
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.crit ? 6 : 4, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, p.crit ? 6 : 4, 0, Math.PI * 2);
     ctx.fillStyle = p.crit ? '#ff2bd6' : '#00f0ff';
     ctx.shadowColor = p.crit ? '#ff2bd6' : '#00f0ff';
     ctx.shadowBlur = 12;
@@ -532,9 +888,16 @@ function drawProjectiles(projectiles) {
 
 function drawPlayers(players, renderTime) {
   for (const p of players) {
-    const buf = state.buffers.get(p.id);
-    const pos = buf ? buf.sample(renderTime) : { x: p.x, y: p.y };
+    let pos;
+    if (p.id === state.myPlayerId && state.predicted.initialized && !p.dead) {
+      pos = { x: state.predicted.x, y: state.predicted.y };
+    } else {
+      const buf = state.buffers.get(p.id);
+      pos = buf ? buf.sample(renderTime) : { x: p.x, y: p.y };
+    }
+
     if (!pos) continue;
+    if (p.id !== state.myPlayerId && !isVisible(pos.x, pos.y, 80)) continue;
 
     ctx.save();
     ctx.translate(pos.x, pos.y);
@@ -543,20 +906,19 @@ function drawPlayers(players, renderTime) {
       ctx.globalAlpha = 0.3;
     }
 
-    // Orientación del soldado según movimiento o puntería
     const prevPos = playerPrevPositions.get(p.id) || { x: pos.x, y: pos.y };
     const dx = pos.x - prevPos.x;
     playerPrevPositions.set(p.id, { x: pos.x, y: pos.y });
 
     let soldierSprite = soldierSprites.front;
-    if (dx > 0.08) {
+    if (p.id === state.myPlayerId) {
+      const facing = Math.cos(state.aimAngle);
+      if (facing > 0.35) soldierSprite = soldierSprites.right;
+      else if (facing < -0.35) soldierSprite = soldierSprites.left;
+    } else if (dx > 0.08) {
       soldierSprite = soldierSprites.right;
     } else if (dx < -0.08) {
       soldierSprite = soldierSprites.left;
-    } else if (p.id === state.myPlayerId) {
-      const cx = elements.canvas.width / 2;
-      if (state.mouse.x > cx + 40) soldierSprite = soldierSprites.right;
-      else if (state.mouse.x < cx - 40) soldierSprite = soldierSprites.left;
     }
 
     const isBlueSoldier = p.color === '#00f0ff' || !p.color;
@@ -567,11 +929,10 @@ function drawPlayers(players, renderTime) {
       ctx.ellipse(0, 12, 16, 7, 0, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(0, 240, 255, 0.35)';
       ctx.shadowColor = '#00f0ff';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = state.isTouch ? 8 : 12;
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Dibujar sprite del soldado azul escalado
       const spriteW = 32;
       const spriteH = 46;
       ctx.drawImage(soldierSprite, -spriteW / 2, -28, spriteW, spriteH);
@@ -608,15 +969,56 @@ function drawPlayers(players, renderTime) {
   }
 }
 
-// --- Ajuste de Canvas ---
+// --- Ajuste de Canvas y DPR ---
 function setupCanvasResize() {
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', scheduleCanvasResize);
+  window.addEventListener('orientationchange', () => {
+    scheduleCanvasResize();
+    setTimeout(scheduleCanvasResize, 50);
+    setTimeout(scheduleCanvasResize, 150);
+    setTimeout(scheduleCanvasResize, 300);
+  });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', scheduleCanvasResize);
+  }
+
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(scheduleCanvasResize);
+    observer.observe(elements.canvasWrapper);
+  }
+}
+
+function scheduleCanvasResize() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    resizeCanvas();
+  });
 }
 
 function resizeCanvas() {
+  if (!elements.viewGame.classList.contains('active')) return;
+
   const rect = elements.canvasWrapper.getBoundingClientRect();
-  elements.canvas.width = rect.width;
-  elements.canvas.height = rect.height;
+  if (rect.width < 1 || rect.height < 1) return;
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const backingWidth = Math.max(1, Math.round(rect.width * dpr));
+  const backingHeight = Math.max(1, Math.round(rect.height * dpr));
+
+  if (elements.canvas.width !== backingWidth || elements.canvas.height !== backingHeight) {
+    elements.canvas.width = backingWidth;
+    elements.canvas.height = backingHeight;
+  }
+
+  if (state.viewport.dpr !== dpr) {
+    mapCache = null;
+  }
+
+  state.viewport = { width: rect.width, height: rect.height, dpr };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
 }
 
 // --- Eventos de UI y Modales ---
@@ -703,22 +1105,15 @@ function setupUIEvents() {
   elements.btnQuickJoin.addEventListener('click', () => joinRoom('room-1'));
 
   // Sala de Espera
-  elements.btnLeaveRoom.addEventListener('click', () => {
-    showView('view-lobby');
-    state.currentRoomId = null;
-    fetchRooms();
-  });
+  elements.btnLeaveRoom.addEventListener('click', leaveCurrentRoom);
 
   elements.btnToggleReady.addEventListener('click', () => {
+    if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
     const nextState = !state.isReady;
     state.socket.send(JSON.stringify({ type: 'set_ready', ready: nextState }));
   });
 
-  elements.btnExitMatch.addEventListener('click', () => {
-    showView('view-lobby');
-    state.currentRoomId = null;
-    fetchRooms();
-  });
+  elements.btnExitMatch.addEventListener('click', leaveCurrentRoom);
 
   // Modal contraseña de sala protegida
   elements.btnCloseJoinPassword.addEventListener('click', () => {
@@ -732,6 +1127,40 @@ function setupUIEvents() {
     elements.modalJoinPassword.classList.remove('open');
     joinRoom(roomId, password);
   });
+}
+
+function leaveCurrentRoom() {
+  if (state.socket && state.socket.readyState === WebSocket.OPEN && state.currentRoomId) {
+    state.socket.send(JSON.stringify({ type: 'leave_room' }));
+  }
+  clearGameState();
+  showView('view-lobby');
+  fetchRooms();
+}
+
+function clearGameState() {
+  state.currentRoomId = null;
+  state.myPlayerId = null;
+  state.map = null;
+  state.isReady = false;
+  state.buffers.clear();
+  state.projectileBuffers.clear();
+  state.currentSnapshot = null;
+  state.lastSnapshotRecvTime = 0;
+  state.predicted = { x: 0, y: 0, initialized: false };
+  state.pendingInputs = [];
+  state.isLocalDead = false;
+  state.aimAngle = 0;
+  state.touchAim = { active: false, magnitude: 0, x: 0, y: 0, angle: 0, used: false };
+  state.fireRequestUntil = 0;
+  state.inputSeq = 1;
+  state.inputAccumulator = 0;
+  state.viewRect = null;
+  playerPrevPositions.clear();
+  mapCache = null;
+
+  elements.btnToggleReady.setAttribute('data-ready', 'false');
+  elements.btnToggleReady.textContent = 'Marcar "Listo"';
 }
 
 async function fetchRooms() {

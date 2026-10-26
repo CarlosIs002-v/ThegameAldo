@@ -183,6 +183,13 @@ export function startServer(port = process.env.PORT || 3000) {
             break;
           }
 
+          case 'leave_room': {
+            roomManager.leaveRoom(ws);
+            assignedPlayerId = null;
+            ws.send(JSON.stringify({ type: 'left_room' }));
+            break;
+          }
+
           case 'input': {
             const roomId = roomManager.clientToRoom.get(ws);
             if (roomId && assignedPlayerId) {

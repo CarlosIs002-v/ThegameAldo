@@ -278,11 +278,15 @@ export class GameMatch {
         deaths: p.deaths,
         dead: p.deadUntil > 0,
         ping: p.ping,
+        ackSeq: p.lastInputSeq,
       })),
       projectiles: this.projectiles.map((p) => ({
         id: p.id,
+        ownerId: p.ownerId,
         x: Number(p.x.toFixed(2)),
         y: Number(p.y.toFixed(2)),
+        vx: Number(p.vx.toFixed(2)),
+        vy: Number(p.vy.toFixed(2)),
         crit: p.crit,
       })),
       pickups: this.pickups.map((item) => ({
