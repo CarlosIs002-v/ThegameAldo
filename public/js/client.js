@@ -219,6 +219,24 @@ const elements = {
   leaderboardBody: document.getElementById('leaderboard-body'),
   btnToggleLeaderboard: document.getElementById('btn-toggle-leaderboard'),
   btnCloseLeaderboard: document.getElementById('btn-close-leaderboard'),
+
+  // Intro / Title Screen & Menú Renovado
+  viewTitle: document.getElementById('view-title'),
+  btnStartGame: document.getElementById('btn-start-game'),
+  btnTitleControls: document.getElementById('btn-title-controls'),
+  btnTitleSound: document.getElementById('btn-title-sound'),
+  btnTitleCredits: document.getElementById('btn-title-credits'),
+  btnBackToTitle: document.getElementById('btn-back-to-title'),
+  btnOpenHowToPlay: document.getElementById('btn-open-how-to-play'),
+  modalControls: document.getElementById('modal-controls'),
+  btnCloseControls: document.getElementById('btn-close-controls'),
+  modalCredits: document.getElementById('modal-credits'),
+  btnCloseCredits: document.getElementById('btn-close-credits'),
+  lobbyUserName: document.getElementById('lobby-user-name'),
+  lobbyAvatarImg: document.getElementById('lobby-avatar-img'),
+  lobbySpecialistName: document.getElementById('lobby-specialist-name'),
+  btnQuickEditName: document.getElementById('btn-quick-edit-name'),
+  roomsCountHint: document.getElementById('rooms-count-hint'),
 };
 
 const ctx = elements.canvas.getContext('2d');
@@ -232,6 +250,7 @@ export function init() {
   setupInputListeners();
   setupTouchControls();
   setupUIEvents();
+  setupTitleScreen();
   setupCharacterSelection();
   setupBiomeSelection();
   setupClassSelection();
@@ -239,6 +258,15 @@ export function init() {
   setupCanvasResize();
   setupFullscreenListeners();
   fetchRooms();
+
+  // Gestión de vista inicial: Los runners automatizados (Playwright) van directo al lobby a menos que se solicite show_intro
+  const forceIntro = window.location.search.includes('show_intro');
+  const isAutomated = (Boolean(navigator.webdriver) && !forceIntro) || window.location.search.includes('no_intro');
+  if (isAutomated) {
+    showView('view-lobby');
+  } else {
+    showView('view-title');
+  }
 
   // Iniciar bucle de renderizado desacoplado a 60 FPS
   requestAnimationFrame(gameLoop);
@@ -248,7 +276,19 @@ export function init() {
 }
 
 function updateUserDisplay() {
-  elements.userTag.textContent = state.username;
+  if (elements.userTag) elements.userTag.textContent = state.username;
+  if (elements.lobbyUserName) elements.lobbyUserName.textContent = state.username;
+
+  const char = CHARACTERS[state.selectedCharacter] || CHARACTERS.vanguard;
+  if (elements.lobbySpecialistName) {
+    elements.lobbySpecialistName.textContent = char.name;
+    elements.lobbySpecialistName.style.color = char.color || 'var(--color-cyan)';
+  }
+  if (elements.lobbyAvatarImg) {
+    const colorKey = COLOR_MAP[char.color?.toLowerCase()] || char.spriteColor || 'cyan';
+    elements.lobbyAvatarImg.src = `/img/soldier_${colorKey}_front.png`;
+    elements.lobbyAvatarImg.alt = char.name;
+  }
 }
 
 // --- Gestión de Red & WebSockets ---
@@ -476,6 +516,7 @@ function showView(viewId) {
   if (target) target.classList.add('active');
 
   document.body.classList.toggle('in-game', viewId === 'view-game');
+  document.body.classList.toggle('on-title-screen', viewId === 'view-title');
   resetInputs();
 
   if (viewId === 'view-game') {
@@ -2003,6 +2044,69 @@ function resizeCanvas() {
 }
 
 // --- Eventos de UI y Modales ---
+function setupTitleScreen() {
+  function startFromTitle() {
+    playSfx('start_game');
+    showView('view-lobby');
+    fetchRooms();
+  }
+
+  // Botón Start Arcade
+  elements.btnStartGame?.addEventListener('click', () => {
+    startFromTitle();
+  });
+
+  // Presionar Enter o Barra espaciadora en la pantalla de inicio
+  window.addEventListener('keydown', (e) => {
+    if (elements.viewTitle?.classList.contains('active')) {
+      if (e.key === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        startFromTitle();
+      }
+    }
+  });
+
+  // Regresar al título desde el lobby
+  elements.btnBackToTitle?.addEventListener('click', () => {
+    playSfx('menu_click');
+    showView('view-title');
+  });
+
+  // Modal de Controles / Guía
+  elements.btnTitleControls?.addEventListener('click', () => {
+    playSfx('menu_click');
+    elements.modalControls?.classList.add('open');
+  });
+  elements.btnOpenHowToPlay?.addEventListener('click', () => {
+    playSfx('menu_click');
+    elements.modalControls?.classList.add('open');
+  });
+  elements.btnCloseControls?.addEventListener('click', () => {
+    elements.modalControls?.classList.remove('open');
+  });
+
+  // Modal de Créditos
+  elements.btnTitleCredits?.addEventListener('click', () => {
+    playSfx('menu_click');
+    elements.modalCredits?.classList.add('open');
+  });
+  elements.btnCloseCredits?.addEventListener('click', () => {
+    elements.modalCredits?.classList.remove('open');
+  });
+
+  // Botón de sonido en el título
+  elements.btnTitleSound?.addEventListener('click', () => {
+    toggleSound();
+  });
+
+  // Edición rápida de nombre de operador desde el lobby
+  elements.btnQuickEditName?.addEventListener('click', () => {
+    playSfx('menu_click');
+    elements.authErrorMsg.style.display = 'none';
+    elements.modalAuth?.classList.add('open');
+  });
+}
+
 function setupUIEvents() {
   // Autenticación
   elements.btnShowAuth.addEventListener('click', () => {
@@ -2193,25 +2297,50 @@ async function fetchRooms() {
 }
 
 function renderRoomsList(rooms) {
+  if (elements.roomsCountHint) {
+    elements.roomsCountHint.textContent = `${rooms.length} ${rooms.length === 1 ? 'sala activa' : 'salas activas'}`;
+  }
+
   if (rooms.length === 0) {
-    elements.roomsContainer.innerHTML = '<div class="loading-text">No hay salas abiertas activas</div>';
+    elements.roomsContainer.innerHTML = `
+      <div class="empty-rooms-banner">
+        <div class="empty-icon">📡</div>
+        <div class="empty-title">No hay salas abiertas activas</div>
+        <div class="empty-subtitle">Sé el primer operador en desplegar una sala con el botón "Crear Sala".</div>
+      </div>
+    `;
     return;
   }
 
+  const biomeIcons = {
+    cavern: { label: 'Caverna', icon: '💎' },
+    lab: { label: 'Laboratorio', icon: '⚡' },
+    ruins: { label: 'Ruinas', icon: '🌋' },
+  };
+
   elements.roomsContainer.innerHTML = rooms
-    .map(
-      (r) => `
-    <div class="room-item" data-room-id="${r.id}">
-      <div>
-        <div class="room-meta-name">${r.name} ${r.isPrivate ? '🔒' : ''}</div>
-        <div class="room-meta-sub">Host: ${r.creator} | Jugadores: ${r.playerCount}/${r.maxPlayers} | Estado: ${r.status}</div>
+    .map((r) => {
+      const biomeInfo = biomeIcons[r.biome] || biomeIcons.cavern;
+      const isFull = r.playerCount >= r.maxPlayers;
+      return `
+    <div class="room-item ${isFull ? 'room-full' : ''}" data-room-id="${r.id}">
+      <div class="room-meta-group">
+        <div class="room-meta-name">
+          ${r.name} ${r.isPrivate ? '<span class="room-badge-private">🔒 PRIVADA</span>' : ''}
+          <span class="room-badge-biome">${biomeInfo.icon} ${biomeInfo.label}</span>
+        </div>
+        <div class="room-meta-sub">
+          <span>👑 Host: <strong>${r.creator}</strong></span>
+          <span>👥 Operadores: <strong>${r.playerCount}/${r.maxPlayers}</strong></span>
+          <span class="room-status-pill status-${r.status}">${r.status === 'in_progress' ? '⚔️ En combate' : '⏳ Esperando'}</span>
+        </div>
       </div>
-      <button class="cyber-btn cyber-btn-secondary btn-join-room" data-room-id="${r.id}" data-private="${r.isPrivate}">
-        Unirse
+      <button class="cyber-btn ${isFull ? 'cyber-btn-secondary' : 'cyber-btn-primary'} btn-join-room" data-room-id="${r.id}" data-private="${r.isPrivate}" ${isFull ? 'disabled' : ''}>
+        ${isFull ? 'LLENA' : 'DESPLEGARSE'}
       </button>
     </div>
-  `
-    )
+  `;
+    })
     .join('');
 
   document.querySelectorAll('.btn-join-room').forEach((btn) => {
@@ -2326,6 +2455,9 @@ function updateSoundUI() {
   const icon = state.soundEnabled ? '🔊' : '🔇';
   if (elements.soundIcon) elements.soundIcon.textContent = icon;
   if (elements.headerSoundIcon) elements.headerSoundIcon.textContent = icon;
+  if (elements.btnTitleSound) {
+    elements.btnTitleSound.textContent = `${icon} AUDIO`;
+  }
 }
 
 function playSfx(type, options = {}) {
@@ -2337,6 +2469,39 @@ function playSfx(type, options = {}) {
 
   try {
     switch (type) {
+      case 'start_game': {
+        const notes = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99];
+        notes.forEach((freq, idx) => {
+          const osc = aCtx.createOscillator();
+          const gain = aCtx.createGain();
+          osc.type = 'triangle';
+          const t = now + idx * 0.055;
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+          osc.connect(gain);
+          gain.connect(aCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.3);
+        });
+        break;
+      }
+
+      case 'menu_click': {
+        const osc = aCtx.createOscillator();
+        const gain = aCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.04);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+        osc.connect(gain);
+        gain.connect(aCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.045);
+        break;
+      }
+
       case 'shoot': {
         const osc = aCtx.createOscillator();
         const gain = aCtx.createGain();
@@ -2505,6 +2670,8 @@ function setupCharacterSelection() {
 function selectCharacter(charId) {
   state.selectedCharacter = charId;
   localStorage.setItem('cyber_char', charId);
+
+  updateUserDisplay();
 
   document.querySelectorAll('.character-card').forEach((c) => {
     c.classList.toggle('active', c.getAttribute('data-character') === charId);

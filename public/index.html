@@ -47,31 +47,162 @@
 
   <!-- Contenedor Principal de la App -->
   <main class="main-container">
-    <!-- Vista 1: Lobby y Selector de Salas -->
-    <section id="view-lobby" class="view-panel active">
-      <div class="lobby-grid">
-        <div class="cyber-card lobby-hero">
-          <h2>PROTOCOLO DE DESPLIEGUE</h2>
-          <p>Entorno de evaluación multijugador con simulación en tiempo real a 30 Ticks/s y renderizado desacoplado a 60 FPS.</p>
-          <div class="lobby-actions">
-            <button id="btn-create-room-modal" class="cyber-btn cyber-btn-primary">
-              <span class="btn-glow"></span>
-              + Crear Nueva Sala
-            </button>
-            <button id="btn-quick-join" class="cyber-btn cyber-btn-secondary">
-              Entrada Rápida (Sector Alfa)
-            </button>
+    <!-- Vista 0: Pantalla de Inicio / Intro Arcade (Estilo Slayer Survivor / Retro Arcade) -->
+    <section id="view-title" class="view-panel title-screen-panel active">
+      <div class="crt-scanlines"></div>
+      <div class="title-backdrop-grid"></div>
+
+      <div class="title-content-wrapper">
+        <!-- Badge y Título Principal estilo Arcade -->
+        <div class="title-logo-container">
+          <div class="arcade-pill">
+            <span class="arcade-pill-dot"></span>
+            <span>ARCADE ONLINE MULTIPLAYER · 30 TICKS/S</span>
+          </div>
+
+          <h1 class="title-main-logo">
+            <span class="title-word-cyber">CYBER<span class="title-word-grid">GRID</span></span>
+            <span class="title-sub-logo">BREACH &amp; SYNC</span>
+          </h1>
+
+          <p class="title-tagline">BATALLA MULTIJUGADOR TÁCTICA EN TIEMPO REAL</p>
+        </div>
+
+        <!-- Escena Central: Cuadro de Batalla de Especialistas contra Amenazas Cyber -->
+        <div class="title-scene-container">
+          <div class="title-scene-bg-glow"></div>
+          
+          <div class="title-specialists-lineup">
+            <div class="title-fighter-spot" data-name="Espectro">
+              <img src="/img/soldier_magenta_front.png" alt="Espectro" class="fighter-sprite">
+              <span class="fighter-tag tag-magenta">ESPECTRO</span>
+            </div>
+            <div class="title-fighter-spot leader-spot" data-name="Vanguardia">
+              <img src="/img/soldier_cyan_front.png" alt="Vanguardia" class="fighter-sprite leader-sprite">
+              <span class="fighter-tag tag-cyan">VANGUARDIA</span>
+            </div>
+            <div class="title-fighter-spot" data-name="Titán">
+              <img src="/img/soldier_orange_front.png" alt="Titán" class="fighter-sprite">
+              <span class="fighter-tag tag-orange">TITÁN</span>
+            </div>
+            <div class="title-fighter-spot" data-name="Nova">
+              <img src="/img/soldier_teal_front.png" alt="Nova" class="fighter-sprite">
+              <span class="fighter-tag tag-teal">NOVA</span>
+            </div>
+          </div>
+
+          <div class="title-scene-props">
+            <div class="cyber-crystal-prop crystal-left"></div>
+            <div class="cyber-crystal-prop crystal-right"></div>
           </div>
         </div>
 
-        <div class="cyber-card rooms-list-card">
-          <div class="card-header">
-            <h3>SALAS DISPONIBLES</h3>
-            <button id="btn-refresh-rooms" class="btn-xs" title="Actualizar lista">⟳ Refrescar</button>
+        <!-- Gran Botón Interactivo "PULSA START" -->
+        <div class="title-start-zone">
+          <button id="btn-start-game" class="arcade-start-btn" type="button" aria-label="Comenzar partida">
+            <span class="start-btn-sparkle">✦</span>
+            <span class="start-btn-text">PULSA START</span>
+            <span class="start-btn-sparkle">✦</span>
+          </button>
+          <div class="title-start-hint">
+            <span>Presiona <strong>ENTER</strong>, <strong>ESPACIO</strong> o haz <strong>CLIC</strong> para ingresar</span>
           </div>
-          <div id="rooms-container" class="rooms-container">
-            <div class="loading-text">Buscando frecuencias activas...</div>
+        </div>
+
+        <!-- Barra Inferior Arcade (Opciones, Controles, Créditos, Demo) -->
+        <div class="title-footer-bar">
+          <div class="title-footer-left">
+            <span class="badge-demo">DEMO v1.2</span>
           </div>
+          <div class="title-footer-center">
+            <button id="btn-title-controls" class="title-link-btn" type="button">🕹️ CONTROLES</button>
+            <span class="title-sep">•</span>
+            <button id="btn-title-sound" class="title-link-btn" type="button">🔊 AUDIO</button>
+            <span class="title-sep">•</span>
+            <button id="btn-title-credits" class="title-link-btn" type="button">ℹ️ CRÉDITOS</button>
+          </div>
+          <div class="title-footer-right">
+            <span>© 2026 CYBERGRID INDIE STUDIOS</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vista 1: Lobby y Menú Principal Renovado y Sencillo -->
+    <section id="view-lobby" class="view-panel">
+      <!-- Barra Superior de Bienvenida del Operador -->
+      <div class="lobby-welcome-banner">
+        <div class="operator-profile-box">
+          <div class="operator-avatar-badge" id="lobby-active-avatar">
+            <img src="/img/soldier_cyan_front.png" alt="Operador" id="lobby-avatar-img">
+          </div>
+          <div>
+            <div class="operator-greeting">¡HOLA, OPERADOR!</div>
+            <div class="operator-name-row">
+              <strong id="lobby-user-name" class="operator-current-name">Operador</strong>
+              <button id="btn-quick-edit-name" class="btn-text-edit" title="Cambiar Nombre de Usuario">✎ Cambiar</button>
+            </div>
+            <div class="operator-specialist-info">
+              Especialista activo: <span id="lobby-specialist-name" style="color: var(--color-cyan); font-weight: 700;">Vanguardia Neón</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="lobby-quick-nav">
+          <button id="btn-back-to-title" class="btn-xs btn-outline" title="Volver a la Pantalla de Inicio">
+            ⏮ Pantalla de Inicio
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas de Acción Directa: 3 Opciones Claras -->
+      <div class="main-menu-action-cards">
+        <!-- 1. Jugar Ahora -->
+        <div class="menu-action-card card-play">
+          <div class="action-card-badge">MÁS RÁPIDO</div>
+          <div class="action-card-icon">🚀</div>
+          <h2 class="action-card-title">JUGAR AHORA</h2>
+          <p class="action-card-desc">Únete al instante al Sector Alfa con otros jugadores sin esperas.</p>
+          <button id="btn-quick-join" class="cyber-btn cyber-btn-primary btn-action-large">
+            <span class="btn-glow"></span>
+            ▶ Entrar al Combate
+          </button>
+        </div>
+
+        <!-- 2. Crear Sala -->
+        <div class="menu-action-card card-create">
+          <div class="action-card-badge badge-purple">PERSONALIZADO</div>
+          <div class="action-card-icon">🛠️</div>
+          <h2 class="action-card-title">CREAR SALA</h2>
+          <p class="action-card-desc">Configura tu sector, elige bioma (Caverna, Laboratorio, Ruinas) o añade contraseña.</p>
+          <button id="btn-create-room-modal" class="cyber-btn cyber-btn-secondary btn-action-large">
+            + Nueva Sala
+          </button>
+        </div>
+
+        <!-- 3. Cómo Jugar y Guía -->
+        <div class="menu-action-card card-guide">
+          <div class="action-card-badge badge-green">GUÍA</div>
+          <div class="action-card-icon">🎮</div>
+          <h2 class="action-card-title">CÓMO JUGAR</h2>
+          <p class="action-card-desc">Controles para PC (WASD + Ratón + Tab) y pantalla táctil en celulares.</p>
+          <button id="btn-open-how-to-play" class="cyber-btn cyber-btn-outline btn-action-large" type="button">
+            Ver Controles
+          </button>
+        </div>
+      </div>
+
+      <!-- Explorador de Salas Disponibles -->
+      <div class="cyber-card rooms-list-card">
+        <div class="card-header">
+          <div>
+            <h3>SECTORES ACTIVOS EN VIVO</h3>
+            <span class="rooms-count-hint" id="rooms-count-hint">Buscando salas...</span>
+          </div>
+          <button id="btn-refresh-rooms" class="btn-xs btn-refresh" title="Actualizar lista">⟳ Actualizar Lista</button>
+        </div>
+        <div id="rooms-container" class="rooms-container">
+          <div class="loading-text">Buscando frecuencias activas...</div>
         </div>
       </div>
     </section>
@@ -458,6 +589,89 @@
           <button type="submit" class="cyber-btn cyber-btn-primary">Desbloquear y Unirse</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: Cómo Jugar / Controles -->
+  <div id="modal-controls" class="modal-overlay">
+    <div class="cyber-modal modal-controls-card">
+      <div class="modal-header">
+        <h3>🎮 CÓMO JUGAR - GUÍA DE CONTROLES</h3>
+        <button id="btn-close-controls" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="controls-guide-body">
+        <div class="controls-column">
+          <h4>💻 EN COMPUTADORA (PC)</h4>
+          <div class="control-row">
+            <span class="control-key">W A S D / Flechas</span>
+            <span class="control-action">Mover al Operador</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">Ratón / Cursor</span>
+            <span class="control-action">Apuntar armas y orientación</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">Clic Izquierdo</span>
+            <span class="control-action">Disparar proyectiles</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">TAB</span>
+            <span class="control-action">Tabla de Puntuaciones en vivo</span>
+          </div>
+        </div>
+        <div class="controls-column">
+          <h4>📱 EN CELULAR / MÓVIL</h4>
+          <div class="control-row">
+            <span class="control-key">Joystick Izquierdo</span>
+            <span class="control-action">Caminar en cualquier dirección</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">Joystick Derecho</span>
+            <span class="control-action">Apuntar con selector 360°</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">Gatillo Rojo</span>
+            <span class="control-action">Disparo continuo táctil</span>
+          </div>
+          <div class="control-row">
+            <span class="control-key">Botón 📊 Marcador</span>
+            <span class="control-action">Ver posiciones y bajas</span>
+          </div>
+        </div>
+      </div>
+      <div class="controls-objective">
+        <strong>OBJETIVO:</strong> Recoge fragmentos cian 💎 para subir de nivel y botiquines rojos ➕ para curarte. ¡Elimina a otros operadores para liderar la arena!
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Créditos -->
+  <div id="modal-credits" class="modal-overlay">
+    <div class="cyber-modal modal-credits-card">
+      <div class="modal-header">
+        <h3>ℹ️ CRÉDITOS DEL JUEGO</h3>
+        <button id="btn-close-credits" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="credits-body">
+        <h2 style="color: var(--color-cyan); font-family: var(--font-display); margin-bottom: 6px;">CYBERGRID: BREACH &amp; SYNC</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">Videojuego Indie Multijugador Server-Authoritative con Canvas 2D y WebSockets.</p>
+        <div class="credit-item">
+          <strong>Desarrollo &amp; Arquitectura:</strong>
+          <span>CarlosIs002 (10 años de experiencia indie dev)</span>
+        </div>
+        <div class="credit-item">
+          <strong>Motor Gráfico:</strong>
+          <span>HTML5 Canvas 2D Desacoplado (Interpolación a 60 FPS)</span>
+        </div>
+        <div class="credit-item">
+          <strong>Backend &amp; Física:</strong>
+          <span>Node.js Server-Authoritative a 30 Ticks/s</span>
+        </div>
+        <div class="credit-item">
+          <strong>Audio &amp; SFX:</strong>
+          <span>Web Audio API Procedural (Cero Dependencias)</span>
+        </div>
+      </div>
     </div>
   </div>
 
