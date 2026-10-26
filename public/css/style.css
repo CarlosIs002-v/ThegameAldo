@@ -50,6 +50,8 @@ body.cyber-theme {
 body.in-game {
   height: 100vh;
   height: 100dvh;
+  width: 100vw;
+  width: 100dvw;
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -145,6 +147,14 @@ body.in-game {
   display: flex;
   flex-direction: column;
   position: relative;
+  min-height: 0;
+}
+
+body.in-game .main-container {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .view-panel {
@@ -382,6 +392,18 @@ body.in-game {
   overflow: hidden;
   height: calc(100vh - 64px);
   height: calc(100dvh - 64px);
+  min-height: 0;
+  max-height: 100%;
+}
+
+body.in-game #view-game {
+  height: 100%;
+  height: 100dvh;
+  width: 100%;
+  width: 100dvw;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .game-hud {
@@ -498,8 +520,11 @@ body.in-game {
 }
 
 .canvas-wrapper {
+  flex: 1;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  max-height: 100%;
   position: relative;
   display: flex;
   justify-content: center;
@@ -511,9 +536,12 @@ body.in-game {
 #game-canvas {
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   display: block;
   background: #05070a;
   touch-action: none;
+  aspect-ratio: auto;
 }
 
 /* Overlay para forzar rotación horizontal */
@@ -571,6 +599,8 @@ body.in-game {
 .touch-controls-layer {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   z-index: 20;
   display: none;
@@ -599,25 +629,26 @@ body.is-touch .touch-controls-layer {
 }
 
 .touch-joystick-zone {
-  bottom: max(24px, env(safe-area-inset-bottom));
-  left: max(20px, env(safe-area-inset-left));
-  width: 140px;
-  height: 150px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  width: 110px;
+  height: 110px;
 }
 
 .touch-aim-zone {
-  bottom: max(24px, env(safe-area-inset-bottom));
-  right: max(20px, env(safe-area-inset-right));
-  width: 140px;
-  height: 150px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  right: max(16px, env(safe-area-inset-right));
+  width: 110px;
+  height: 110px;
 }
 
 .joystick-base {
-  width: 118px;
-  height: 118px;
+  width: 100px;
+  height: 100px;
   border-radius: 50%;
-  background: rgba(0, 240, 255, 0.08);
-  border: 2px dashed rgba(0, 240, 255, 0.4);
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.16) 0%, rgba(7, 9, 14, 0.7) 70%, rgba(0, 240, 255, 0.08) 100%);
+  border: 2px solid rgba(0, 240, 255, 0.7);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.3), inset 0 0 12px rgba(0, 240, 255, 0.15);
   position: relative;
   display: flex;
   align-items: center;
@@ -626,57 +657,65 @@ body.is-touch .touch-controls-layer {
 }
 
 .aim-base {
-  background: rgba(255, 43, 214, 0.07);
-  border-color: rgba(255, 43, 214, 0.45);
+  background: radial-gradient(circle, rgba(255, 43, 214, 0.16) 0%, rgba(7, 9, 14, 0.7) 70%, rgba(255, 43, 214, 0.08) 100%);
+  border: 2px solid rgba(255, 43, 214, 0.7);
+  box-shadow: 0 0 16px rgba(255, 43, 214, 0.3), inset 0 0 12px rgba(255, 43, 214, 0.15);
 }
 
 .joystick-knob {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: var(--color-cyan);
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.8);
+  background: radial-gradient(circle at 35% 35%, #80f7ff 0%, #00f0ff 65%, #0099b8 100%);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.9), inset 0 1px 2px rgba(255, 255, 255, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.85);
   position: absolute;
   pointer-events: none;
-  transition: transform 0.05s linear;
+  transition: transform 0.04s linear;
   will-change: transform;
 }
 
 .aim-knob {
-  background: var(--color-magenta);
-  box-shadow: 0 0 15px rgba(255, 43, 214, 0.8);
+  background: radial-gradient(circle at 35% 35%, #ffa6ee 0%, #ff2bd6 65%, #b80092 100%);
+  box-shadow: 0 0 18px rgba(255, 43, 214, 0.9), inset 0 1px 2px rgba(255, 255, 255, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.85);
 }
 
 .touch-action-zone {
-  bottom: calc(max(24px, env(safe-area-inset-bottom)) + 158px);
-  right: calc(max(20px, env(safe-area-inset-right)) + 18px);
+  bottom: max(16px, env(safe-area-inset-bottom));
+  right: calc(max(16px, env(safe-area-inset-right)) + 124px);
 }
 
 .touch-fire-btn {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: rgba(255, 43, 214, 0.3);
+  background: radial-gradient(circle at 35% 35%, rgba(255, 43, 214, 0.5) 0%, rgba(184, 0, 146, 0.35) 100%);
   border: 2px solid var(--color-magenta);
   color: #fff;
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 14px;
-  box-shadow: 0 0 20px rgba(255, 43, 214, 0.4);
+  font-size: 13px;
+  letter-spacing: 1px;
+  box-shadow: 0 0 18px rgba(255, 43, 214, 0.5), inset 0 0 8px rgba(255, 43, 214, 0.25);
   cursor: pointer;
   touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .touch-fire-btn:active {
   background: var(--color-magenta);
-  transform: scale(0.95);
+  box-shadow: 0 0 28px rgba(255, 43, 214, 0.85);
+  transform: scale(0.94);
 }
 
 .touch-hint {
   font-family: var(--font-display);
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.45);
-  margin-top: 6px;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
   letter-spacing: 1px;
   text-align: center;
   pointer-events: none;
@@ -811,7 +850,11 @@ body.is-touch .touch-controls-layer {
 
 /* Responsividad */
 
-/* Durante la partida en pantallas táctiles/pequeñas el canvas ocupa toda la pantalla. */
+/* Durante la partida el canvas ocupa toda la pantalla */
+body.in-game .cyber-header {
+  display: none !important;
+}
+
 @media (max-width: 1024px) {
   body.in-game {
     position: fixed;
@@ -820,10 +863,6 @@ body.is-touch .touch-controls-layer {
     width: 100dvw;
     height: 100vh;
     height: 100dvh;
-  }
-
-  body.in-game .cyber-header {
-    display: none;
   }
 
   body.in-game #view-game {
@@ -1040,37 +1079,58 @@ body.is-touch .touch-controls-layer {
   }
 }
 
-@media (max-height: 500px) and (orientation: landscape) {
+@media (max-height: 550px) {
   .game-hud {
     top: max(6px, env(safe-area-inset-top));
     left: max(8px, env(safe-area-inset-left));
     right: max(8px, env(safe-area-inset-right));
+    gap: 6px;
   }
 
-  .touch-joystick-zone,
-  .touch-aim-zone {
-    bottom: max(8px, env(safe-area-inset-bottom));
-    width: 116px;
-    height: 122px;
-    transform: scale(0.85);
-    transform-origin: bottom center;
+  .hud-bar-container {
+    width: 140px;
+    padding: 4px 8px;
+  }
+
+  .dom-telemetry-box {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
   }
 
   .touch-joystick-zone {
-    left: max(8px, env(safe-area-inset-left));
-    transform-origin: bottom left;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    width: 96px;
+    height: 96px;
   }
 
   .touch-aim-zone {
-    right: max(8px, env(safe-area-inset-right));
-    transform-origin: bottom right;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    right: max(12px, env(safe-area-inset-right));
+    width: 96px;
+    height: 96px;
+  }
+
+  .joystick-base {
+    width: 92px;
+    height: 92px;
+  }
+
+  .joystick-knob {
+    width: 42px;
+    height: 42px;
   }
 
   .touch-action-zone {
     bottom: max(10px, env(safe-area-inset-bottom));
-    right: calc(max(8px, env(safe-area-inset-right)) + 150px);
-    transform: scale(0.8);
-    transform-origin: bottom right;
+    right: calc(max(12px, env(safe-area-inset-right)) + 108px);
+  }
+
+  .touch-fire-btn {
+    width: 58px;
+    height: 58px;
+    font-size: 11px;
   }
 
   .touch-hint {
