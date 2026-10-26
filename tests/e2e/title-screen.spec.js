@@ -33,17 +33,9 @@ test.describe('Flujo E2E 6: Pantalla de Inicio Arcade, Botón Start y Menú Prin
     await page.locator('#btn-close-controls').click();
     await expect(modalControls).not.toHaveClass(/open/);
 
-    // 5. Probar apertura y cierre del modal de Créditos desde el título
-    const btnCredits = page.locator('#btn-title-credits');
-    await expect(btnCredits).toBeVisible();
-    await btnCredits.click();
-
-    const modalCredits = page.locator('#modal-credits');
-    await expect(modalCredits).toHaveClass(/open/);
-    await expect(modalCredits).toContainText('CRÉDITOS DEL JUEGO');
-
-    await page.locator('#btn-close-credits').click();
-    await expect(modalCredits).not.toHaveClass(/open/);
+    // 5. Verificar que los créditos no existen en la interfaz
+    await expect(page.locator('#btn-title-credits')).toHaveCount(0);
+    await expect(page.locator('#modal-credits')).toHaveCount(0);
 
     // 6. Hacer clic en "PULSA START"
     await startBtn.click();

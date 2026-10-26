@@ -246,13 +246,10 @@ const elements = {
   btnStartGame: document.getElementById('btn-start-game'),
   btnTitleControls: document.getElementById('btn-title-controls'),
   btnTitleSound: document.getElementById('btn-title-sound'),
-  btnTitleCredits: document.getElementById('btn-title-credits'),
   btnBackToTitle: document.getElementById('btn-back-to-title'),
   btnOpenHowToPlay: document.getElementById('btn-open-how-to-play'),
   modalControls: document.getElementById('modal-controls'),
   btnCloseControls: document.getElementById('btn-close-controls'),
-  modalCredits: document.getElementById('modal-credits'),
-  btnCloseCredits: document.getElementById('btn-close-credits'),
   lobbyUserName: document.getElementById('lobby-user-name'),
   lobbyAvatarImg: document.getElementById('lobby-avatar-img'),
   lobbySpecialistName: document.getElementById('lobby-specialist-name'),
@@ -2152,14 +2149,6 @@ function setupTitleScreen() {
     elements.modalControls?.classList.remove('open');
   });
 
-  // Modal de Créditos
-  elements.btnTitleCredits?.addEventListener('click', () => {
-    playSfx('menu_click');
-    elements.modalCredits?.classList.add('open');
-  });
-  elements.btnCloseCredits?.addEventListener('click', () => {
-    elements.modalCredits?.classList.remove('open');
-  });
 
   // Botón de sonido en el título
   elements.btnTitleSound?.addEventListener('click', () => {
